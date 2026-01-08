@@ -290,9 +290,10 @@ function EditableTable({ data: initialData, columns, title }: { data: any[]; col
   };
 
   const exportPDF = async () => {
-    const { jsPDF } = await import('jspdf');
-    const autoTable = (await import('jspdf-autotable')).default;
-    const doc = new jsPDF();
+  const jsPDFModule = await import('jspdf');
+  const jsPDF = jsPDFModule.default;
+  const autoTable = (await import('jspdf-autotable')).default;
+  const doc = new jsPDF();
     doc.setFontSize(16);
     doc.text(title, 14, 20);
     doc.setFontSize(10);
