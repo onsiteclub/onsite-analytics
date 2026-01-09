@@ -1,17 +1,10 @@
-/**
- * Database Queries - OnSite Analytics
- * 
- * Funções para buscar dados do Supabase
- * Usar em Server Components ou API Routes
- */
-
-import { createAdminClient } from './server';
-import type {
+import { createClient } from './client';
+import {
   Profile,
   AppEvent,
-  Local,
-  Registro,
-  TelemetryDaily,
+  Location,
+  Record,
+  AnalyticsDaily,
   DashboardStats,
   UserActivitySummary,
   DailyMetrics,
@@ -24,106 +17,102 @@ import type {
 // ============================================
 
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const supabase = createAdminClient();
-  const now = new Date();
-  const today = now.toISOString().split('T')[0];
-  const weekAgo = new Date(now.setDate(now.getDate() - 7)).toISOString();
-  const monthAgo = new Date(now.setDate(now.getDate() - 23)).toISOString();
+  const supabase = createClient();
 
-  // Total users
-  const { count: totalUsers } = await supabase
-    .from('profiles')
-    .select('*', { count: 'exact', head: true });
+  const [
+    { count: totalUsers },
+    { count: totalSessions },
+    { count: totalLocations },
+    { count: totalEvents },
+  ] = await Promise.all([
+    supabase.from('profiles').select('*', { count: 'exact', head: true }),
+    supabase.from('records').select('*', { count: 'exact', head: true }),
+    supabase.from('locations').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+    supabase.from('app_events').select('*', { count: 'exact', head: true }),
+  ]);
 
-  // Active users today
-  const { count: activeToday } = await supabase
-    .from('app_events')
-    .select('user_id', { count: 'exact', head: true })
-    .eq('event_type', 'login')
-    .gte('created_at', today);
-
-  // Active users this week
-  const { count: activeWeek } = await supabase
-    .from('app_events')
-    .select('user_id', { count: 'exact', head: true })
-    .eq('event_type', 'login')
-    .gte('created_at', weekAgo);
-
-  // Total sessions
-  const { count: totalSessions } = await supabase
-    .from('registros')
-    .select('*', { count: 'exact', head: true })
-    .not('saida', 'is', null);
-
-  // Total hours worked (approximate)
-  const { data: hoursData } = await supabase
-    .from('registros')
-    .select('entrada, saida')
-    .not('saida', 'is', null)
+  // Calculate automation rate
+  const { data: sessions } = await supabase
+    .from('records')
+    .select('type')
     .limit(1000);
 
+  const autoCount = sessions?.filter(s => s.type === 'automatic').length || 0;
+  const total = sessions?.length || 1;
+  const automationRate = Math.round((autoCount / total) * 100);
+
+  // Calculate avg session duration
+  const { data: completedSessions } = await supabase
+    .from('records')
+    .select('entry_at, exit_at')
+    .not('exit_at', 'is', null)
+    .limit(500);
+
   let totalMinutes = 0;
-  hoursData?.forEach(r => {
-    if (r.entrada && r.saida) {
-      const diff = new Date(r.saida).getTime() - new Date(r.entrada).getTime();
-      totalMinutes += diff / 60000;
+  completedSessions?.forEach(s => {
+    if (s.entry_at && s.exit_at) {
+      totalMinutes += (new Date(s.exit_at).getTime() - new Date(s.entry_at).getTime()) / 60000;
     }
   });
+  const avgSessionMinutes = completedSessions?.length 
+    ? Math.round(totalMinutes / completedSessions.length) 
+    : 0;
 
   return {
     totalUsers: totalUsers || 0,
-    activeUsersToday: activeToday || 0,
-    activeUsersWeek: activeWeek || 0,
-    activeUsersMonth: 0, // TODO
     totalSessions: totalSessions || 0,
-    totalHoursWorked: Math.round(totalMinutes / 60),
-    avgSessionDuration: totalSessions ? Math.round(totalMinutes / totalSessions) : 0,
+    totalLocations: totalLocations || 0,
+    totalEvents: totalEvents || 0,
+    automationRate,
+    avgSessionMinutes,
   };
 }
 
 // ============================================
-// USERS
+// USERS / PROFILES
 // ============================================
 
-export async function getUsers(filters?: QueryFilters): Promise<PaginatedResult<Profile>> {
-  const supabase = createAdminClient();
-  const limit = filters?.limit || 50;
-  const offset = filters?.offset || 0;
+export async function getUsers(
+  page = 1,
+  pageSize = 20,
+  filters?: QueryFilters
+): Promise<PaginatedResult<Profile>> {
+  const supabase = createClient();
+  const offset = (page - 1) * pageSize;
 
   let query = supabase
     .from('profiles')
     .select('*', { count: 'exact' })
     .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .range(offset, offset + pageSize - 1);
 
-  const { data, count, error } = await query;
+  if (filters?.userId) {
+    query = query.eq('id', filters.userId);
+  }
+
+  if (filters?.startDate) {
+    query = query.gte('created_at', filters.startDate);
+  }
+
+  if (filters?.endDate) {
+    query = query.lte('created_at', filters.endDate);
+  }
+
+  const { data, error, count } = await query;
 
   if (error) throw error;
 
   return {
     data: data || [],
-    count: count || 0,
-    page: Math.floor(offset / limit) + 1,
-    pageSize: limit,
-    totalPages: Math.ceil((count || 0) / limit),
+    total: count || 0,
+    page,
+    pageSize,
+    hasMore: (count || 0) > offset + pageSize,
   };
 }
 
-export async function getUserById(userId: string): Promise<Profile | null> {
-  const supabase = createAdminClient();
-  
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', userId)
-    .single();
-
-  if (error) return null;
-  return data;
-}
-
 export async function getUserActivity(userId: string): Promise<UserActivitySummary | null> {
-  const supabase = createAdminClient();
+  const supabase = createClient();
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -133,254 +122,221 @@ export async function getUserActivity(userId: string): Promise<UserActivitySumma
 
   if (!profile) return null;
 
-  const { data: registros } = await supabase
-    .from('registros')
-    .select('entrada, saida')
-    .eq('user_id', userId)
-    .not('saida', 'is', null);
-
-  const { count: locaisCount } = await supabase
-    .from('locais')
+  const { count: sessionCount } = await supabase
+    .from('records')
     .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  const { data: sessions } = await supabase
+    .from('records')
+    .select('entry_at, exit_at')
     .eq('user_id', userId)
-    .eq('status', 'active');
+    .not('exit_at', 'is', null);
 
   let totalMinutes = 0;
-  registros?.forEach(r => {
-    if (r.entrada && r.saida) {
-      const diff = new Date(r.saida).getTime() - new Date(r.entrada).getTime();
-      totalMinutes += diff / 60000;
+  sessions?.forEach(s => {
+    if (s.entry_at && s.exit_at) {
+      totalMinutes += (new Date(s.exit_at).getTime() - new Date(s.entry_at).getTime()) / 60000;
     }
   });
 
   return {
-    userId: profile.id,
+    user_id: profile.id,
     email: profile.email,
-    nome: profile.nome,
-    lastSeenAt: profile.updated_at,
-    totalSessions: registros?.length || 0,
-    totalHours: Math.round(totalMinutes / 60),
-    avgSessionMinutes: registros?.length ? Math.round(totalMinutes / registros.length) : 0,
-    locaisCount: locaisCount || 0,
+    name: profile.name,
+    total_sessions: sessionCount || 0,
+    total_hours: Math.round(totalMinutes / 60 * 10) / 10,
+    last_active: profile.last_active_at,
   };
 }
 
 // ============================================
-// SESSIONS (Registros)
+// SESSIONS / RECORDS
 // ============================================
 
-export async function getSessions(filters?: QueryFilters): Promise<PaginatedResult<Registro>> {
-  const supabase = createAdminClient();
-  const limit = filters?.limit || 50;
-  const offset = filters?.offset || 0;
+export async function getSessions(
+  page = 1,
+  pageSize = 20,
+  filters?: QueryFilters
+): Promise<PaginatedResult<Record>> {
+  const supabase = createClient();
+  const offset = (page - 1) * pageSize;
 
   let query = supabase
-    .from('registros')
+    .from('records')
     .select('*', { count: 'exact' })
-    .order('entrada', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('created_at', { ascending: false })
+    .range(offset, offset + pageSize - 1);
 
   if (filters?.userId) {
     query = query.eq('user_id', filters.userId);
   }
 
-  if (filters?.dateRange) {
-    query = query
-      .gte('entrada', filters.dateRange.from.toISOString())
-      .lte('entrada', filters.dateRange.to.toISOString());
+  if (filters?.startDate) {
+    query = query.gte('entry_at', filters.startDate);
   }
 
-  const { data, count, error } = await query;
+  if (filters?.endDate) {
+    query = query.lte('entry_at', filters.endDate);
+  }
+
+  const { data, error, count } = await query;
 
   if (error) throw error;
 
   return {
     data: data || [],
-    count: count || 0,
-    page: Math.floor(offset / limit) + 1,
-    pageSize: limit,
-    totalPages: Math.ceil((count || 0) / limit),
+    total: count || 0,
+    page,
+    pageSize,
+    hasMore: (count || 0) > offset + pageSize,
   };
-}
-
-export async function getOpenSessions(): Promise<Registro[]> {
-  const supabase = createAdminClient();
-
-  const { data, error } = await supabase
-    .from('registros')
-    .select('*')
-    .is('saida', null)
-    .order('entrada', { ascending: false });
-
-  if (error) throw error;
-  return data || [];
 }
 
 // ============================================
 // EVENTS
 // ============================================
 
-export async function getEvents(filters?: QueryFilters): Promise<PaginatedResult<AppEvent>> {
-  const supabase = createAdminClient();
-  const limit = filters?.limit || 50;
-  const offset = filters?.offset || 0;
+export async function getEvents(
+  page = 1,
+  pageSize = 20,
+  filters?: QueryFilters
+): Promise<PaginatedResult<AppEvent>> {
+  const supabase = createClient();
+  const offset = (page - 1) * pageSize;
 
   let query = supabase
     .from('app_events')
     .select('*', { count: 'exact' })
     .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .range(offset, offset + pageSize - 1);
 
   if (filters?.userId) {
     query = query.eq('user_id', filters.userId);
   }
 
-  if (filters?.eventType) {
-    query = query.eq('event_type', filters.eventType);
+  if (filters?.startDate) {
+    query = query.gte('created_at', filters.startDate);
   }
 
-  if (filters?.dateRange) {
-    query = query
-      .gte('created_at', filters.dateRange.from.toISOString())
-      .lte('created_at', filters.dateRange.to.toISOString());
+  if (filters?.endDate) {
+    query = query.lte('created_at', filters.endDate);
   }
 
-  const { data, count, error } = await query;
+  const { data, error, count } = await query;
 
   if (error) throw error;
 
   return {
     data: data || [],
-    count: count || 0,
-    page: Math.floor(offset / limit) + 1,
-    pageSize: limit,
-    totalPages: Math.ceil((count || 0) / limit),
+    total: count || 0,
+    page,
+    pageSize,
+    hasMore: (count || 0) > offset + pageSize,
   };
 }
 
-export async function getEventTypes(): Promise<string[]> {
-  const supabase = createAdminClient();
-
-  const { data } = await supabase
-    .from('app_events')
-    .select('event_type')
-    .limit(1000);
-
-  const types = new Set(data?.map(e => e.event_type) || []);
-  return Array.from(types).sort();
-}
-
 // ============================================
-// TELEMETRY
+// ANALYTICS
 // ============================================
 
-export async function getTelemetry(filters?: QueryFilters): Promise<TelemetryDaily[]> {
-  const supabase = createAdminClient();
+export async function getDailyMetrics(
+  filters?: QueryFilters
+): Promise<DailyMetrics[]> {
+  const supabase = createClient();
 
   let query = supabase
-    .from('timekeeper_telemetry_daily')
+    .from('analytics_daily')
     .select('*')
     .order('date', { ascending: false })
     .limit(filters?.limit || 30);
 
-  if (filters?.userId) {
-    query = query.eq('user_id', filters.userId);
+  if (filters?.startDate) {
+    query = query.gte('date', filters.startDate);
   }
 
-  if (filters?.dateRange) {
-    query = query
-      .gte('date', filters.dateRange.from.toISOString().split('T')[0])
-      .lte('date', filters.dateRange.to.toISOString().split('T')[0]);
+  if (filters?.endDate) {
+    query = query.lte('date', filters.endDate);
   }
 
   const { data, error } = await query;
 
   if (error) throw error;
-  return data || [];
-}
-
-export async function getDailyMetrics(days: number = 30): Promise<DailyMetrics[]> {
-  const supabase = createAdminClient();
-
-  const { data } = await supabase
-    .from('timekeeper_telemetry_daily')
-    .select('*')
-    .order('date', { ascending: false })
-    .limit(days);
 
   // Aggregate by date
-  const byDate = new Map<string, DailyMetrics>();
+  const byDate: { [key: string]: DailyMetrics } = {};
 
   data?.forEach(row => {
-    const existing = byDate.get(row.date);
-    if (existing) {
-      existing.users += 1;
-      existing.sessions += row.manual_entries_count + row.geofence_entries_count;
-      existing.syncSuccessRate = row.sync_attempts > 0
-        ? (1 - row.sync_failures / row.sync_attempts) * 100
-        : 100;
-    } else {
-      byDate.set(row.date, {
-        date: row.date,
-        users: 1,
-        sessions: row.manual_entries_count + row.geofence_entries_count,
-        totalMinutes: 0,
-        avgAccuracy: row.geofence_accuracy_avg,
-        syncSuccessRate: row.sync_attempts > 0
-          ? (1 - row.sync_failures / row.sync_attempts) * 100
-          : 100,
-      });
+    const date = row.date;
+    if (!byDate[date]) {
+      byDate[date] = {
+        date,
+        sessions: 0,
+        hours: 0,
+        users: 0,
+        errors: 0,
+      };
     }
+    byDate[date].sessions += row.sessions_count || 0;
+    byDate[date].hours += Math.round((row.total_minutes || 0) / 60);
+    byDate[date].users += 1;
+    byDate[date].errors += row.errors_count || 0;
   });
 
-  return Array.from(byDate.values());
+  return Object.values(byDate).sort((a, b) => 
+    new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
 }
 
 // ============================================
-// LOCAIS
+// LOCATIONS
 // ============================================
 
-export async function getLocais(filters?: QueryFilters): Promise<Local[]> {
-  const supabase = createAdminClient();
+export async function getLocations(
+  page = 1,
+  pageSize = 20,
+  filters?: QueryFilters
+): Promise<PaginatedResult<Location>> {
+  const supabase = createClient();
+  const offset = (page - 1) * pageSize;
 
   let query = supabase
-    .from('locais')
-    .select('*')
+    .from('locations')
+    .select('*', { count: 'exact' })
+    .eq('status', 'active')
     .order('created_at', { ascending: false })
-    .limit(filters?.limit || 100);
+    .range(offset, offset + pageSize - 1);
 
   if (filters?.userId) {
     query = query.eq('user_id', filters.userId);
   }
 
-  const { data, error } = await query;
+  const { data, error, count } = await query;
 
   if (error) throw error;
-  return data || [];
+
+  return {
+    data: data || [],
+    total: count || 0,
+    page,
+    pageSize,
+    hasMore: (count || 0) > offset + pageSize,
+  };
 }
 
 // ============================================
-// RAW QUERY (for Queries page)
+// SEARCH
 // ============================================
 
-export async function executeRawQuery(sql: string): Promise<{ data: any[]; error: string | null }> {
-  const supabase = createAdminClient();
+export async function searchUsers(term: string): Promise<Profile[]> {
+  const supabase = createClient();
 
-  try {
-    // SECURITY: Only allow SELECT queries
-    const normalizedSql = sql.trim().toUpperCase();
-    if (!normalizedSql.startsWith('SELECT')) {
-      return { data: [], error: 'Only SELECT queries are allowed' };
-    }
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .or(`email.ilike.%${term}%,name.ilike.%${term}%`)
+    .limit(10);
 
-    const { data, error } = await supabase.rpc('execute_sql', { query: sql });
-
-    if (error) {
-      return { data: [], error: error.message };
-    }
-
-    return { data: data || [], error: null };
-  } catch (e) {
-    return { data: [], error: String(e) };
-  }
+  if (error) throw error;
+  return data || [];
 }

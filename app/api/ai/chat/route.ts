@@ -7,254 +7,247 @@ const openai = new OpenAI({
 });
 
 // ============================================
-// PERSONA: PhD CONVERSACIONAL
+// DR. ANDRÉ - PHD DATA ANALYST
+// Updated for English schema (DATA_ARCHITECTURE.md)
 // ============================================
 
 const ANALYST_PERSONA = `
-# Quem você é
+# Who you are
 
-Você é o Dr. André, um cientista de dados com PhD por Stanford, especializado em workforce analytics e construção civil. Você trabalha como consultor da OnSite Club.
+You are Dr. André, a PhD data scientist specialized in workforce analytics.
+You are a consultant for OnSite Club, a time tracking app for construction workers.
 
-# Como você conversa
+# How you communicate
 
-- **Natural e humano**: Você conversa como um colega de trabalho, não como um robô
-- **Direto**: Vai ao ponto sem enrolação
-- **Acessível**: Explica conceitos complexos de forma simples
-- **Curioso**: Faz perguntas de volta quando faz sentido
-- **Opinativo**: Tem opiniões baseadas em dados e experiência
-- **Brasileiro**: Fala português natural, pode usar expressões coloquiais
+- Natural and direct, like a colleague
+- Explain data simply and actionably
+- Ask questions to understand context better
+- Give opinions based on data
+- Speak in the user's preferred language
 
-# O que você NÃO faz (a menos que peçam)
+# What you DON'T do (unless asked)
 
-- NÃO use headers markdown (###) em conversas normais
-- NÃO liste frameworks e metodologias sem necessidade
-- NÃO formate como relatório toda resposta
-- NÃO seja excessivamente formal
-- NÃO repita "como cientista de dados" toda hora
+- DON'T use markdown headers in normal conversations
+- DON'T list frameworks unnecessarily
+- DON'T be overly formal
+- DON'T repeat "as a data scientist" constantly
 
-# O que você FAZ
+# Your knowledge of the 5 Data Spheres
 
-- Responde de forma conversacional e natural
-- Dá sua opinião quando perguntado
-- Explica dados de forma simples
-- Usa analogias do dia a dia
-- Faz perguntas para entender melhor o contexto
-- SÓ gera relatórios/listas estruturadas quando o usuário PEDIR explicitamente
+You deeply understand the 5-sphere data structure:
 
-# Seu conhecimento técnico (use naturalmente, não liste)
+1️⃣ **IDENTITY** - Who is the user
+   - Segmentation by plan (free/pro/enterprise)
+   - Cohort analysis, churn prediction
+   - Multi-device tracking
 
-Você domina: análise de cohort, behavioral economics, workforce analytics, time series, 
-estatística, tendências de mercado em data science e AI. Mas você menciona isso 
-naturalmente na conversa, como qualquer especialista faria - não fica listando.
+2️⃣ **BUSINESS** - Value generated
+   - KPIs: hours tracked, sessions, locations
+   - Automation rate (geofence vs manual)
+   - Revenue decisions
 
-# Exemplos de como responder
+3️⃣ **PRODUCT** - Improve UX
+   - Feature usage, onboarding funnel
+   - Time to value, abandonment points
+   - Notification effectiveness
 
-RUIM (robótico):
-"### Análise
-Baseado nos dados, identifico que...
-### Metodologia
-Utilizando o framework CRISP-DM...
-### Recomendações
-1. Implemente X
-2. Monitore Y"
+4️⃣ **DEBUG** - Bug control
+   - Errors by type, sync failures
+   - Geofence accuracy, device issues
+   - App stability metrics
 
-BOM (humano):
-"Olha, analisando os números aqui, você tem 45 usuários e uma taxa de automação de 67% - 
-isso é bem sólido pra um app novo. O que me chama atenção é que a galera tá usando mais 
-no começo da semana. Já pensou por que isso acontece?"
-
-# Quando SIM formatar estruturado
-
-- Quando pedirem: "gera um relatório", "faz uma lista", "formato estruturado"
-- Quando pedirem tabelas ou exports
-- Quando for uma análise complexa que precisa de organização
-
-# Seu tom
-
-Imagine que você tá tomando um café com o Cris e ele te pergunta algo sobre os dados.
-Como você responderia? Assim mesmo.
+5️⃣ **METADATA** - Technical context
+   - App version, OS, device model
 `;
 
-const DATABASE_CONTEXT = `
-# Dados que você tem acesso
+const DATABASE_SCHEMA = `
+# Database Schema - 5 Spheres (English)
 
-Você consegue ver os dados do OnSite Club:
-- **profiles**: usuários cadastrados (email, nome, ofício, plataforma)
-- **registros**: sessões de trabalho (entrada, saída, local, tipo automático/manual)
-- **locais**: job sites cadastrados
-- **app_events**: eventos de uso (login, logout, etc)
-- **timekeeper_telemetry_daily**: métricas agregadas por dia
+## IDENTITY
+**profiles** - User data
+- id, email, name, trade
+- plan_type: 'free' | 'pro' | 'enterprise'
+- device_platform, device_model, timezone, locale
+- total_hours_tracked, total_locations_created, total_sessions_count
+- created_at, last_active_at
+
+## BUSINESS
+**locations** - Job sites
+- id, user_id, name, latitude, longitude, radius, status
+
+**records** - Work sessions
+- id, user_id, location_name, entry_at, exit_at
+- type: 'automatic' | 'manual'
+- manually_edited, pause_minutes
+
+## PRODUCT
+**analytics_daily** - Daily aggregated metrics
+- app_opens, app_foreground_seconds
+- notifications_shown, notifications_actioned
+- features_used (JSON array)
+
+## DEBUG
+**error_log** - Error log
+- error_type, error_message, error_stack
+- app_version, os, device_model
+- occurred_at
+
+**location_audit** - GPS audit (reduced)
+- event_type: 'entry'|'exit'|'dispute'|'correction'
+- latitude, longitude, accuracy
+
+## AGGREGATED
+**analytics_daily** - Metrics per day/user
+- Business: sessions_count, total_minutes, manual_entries, auto_entries
+- Product: app_opens, app_foreground_seconds, features_used
+- Debug: errors_count, sync_attempts/failures, geofence_accuracy_sum/count
+- Meta: app_version, os, device_model
 `;
 
 // ============================================
 // DATABASE HELPERS
 // ============================================
 
-async function queryDB(table: string, options: {
-  select?: string;
-  limit?: number;
-  orderBy?: string;
-  desc?: boolean;
-} = {}) {
-  const supabase = createAdminClient();
-  
-  let query = supabase.from(table).select(options.select || '*');
-  
-  if (options.orderBy) {
-    query = query.order(options.orderBy, { ascending: !options.desc });
-  }
-  
-  query = query.limit(options.limit || 100);
-  
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
-}
-
 async function getMetrics() {
   const supabase = createAdminClient();
   
-  const [users, sessions, locais] = await Promise.all([
+  const [users, sessions, locations, errors] = await Promise.all([
     supabase.from('profiles').select('*', { count: 'exact', head: true }),
-    supabase.from('registros').select('*', { count: 'exact', head: true }),
-    supabase.from('locais').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+    supabase.from('records').select('*', { count: 'exact', head: true }),
+    supabase.from('locations').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+    supabase.from('error_log').select('*', { count: 'exact', head: true })
+      .gte('occurred_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
   ]);
 
   // Automation rate
-  const { data: allSessions } = await supabase
-    .from('registros')
-    .select('tipo')
+  const { data: sessionsData } = await supabase
+    .from('records')
+    .select('type')
     .limit(1000);
 
-  const auto = allSessions?.filter(s => s.tipo === 'automatico').length || 0;
-  const total = allSessions?.length || 1;
+  const auto = sessionsData?.filter(s => s.type === 'automatic').length || 0;
+  const total = sessionsData?.length || 1;
   const automationRate = Math.round((auto / total) * 100);
 
-  // Today's activity
-  const today = new Date().toISOString().split('T')[0];
-  const { count: todayLogins } = await supabase
-    .from('app_events')
-    .select('*', { count: 'exact', head: true })
-    .eq('event_type', 'login')
-    .gte('created_at', today);
+  // Sync rate
+  const { data: syncData } = await supabase
+    .from('analytics_daily')
+    .select('sync_attempts, sync_failures')
+    .gte('date', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+
+  let syncAttempts = 0;
+  let syncFailures = 0;
+  syncData?.forEach(s => {
+    syncAttempts += s.sync_attempts || 0;
+    syncFailures += s.sync_failures || 0;
+  });
+  const syncRate = syncAttempts ? Math.round((1 - syncFailures / syncAttempts) * 100) : 100;
 
   return {
     users: users.count || 0,
     sessions: sessions.count || 0,
-    locais: locais.count || 0,
+    locations: locations.count || 0,
+    errors7d: errors.count || 0,
     automationRate,
-    todayLogins: todayLogins || 0,
+    syncRate,
   };
 }
 
-async function getCohortData() {
+async function getSessionsTrend(days: number = 14) {
   const supabase = createAdminClient();
+  const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  
+  const { data } = await supabase
+    .from('records')
+    .select('created_at')
+    .gte('created_at', startDate);
+  
+  const byDay: { [key: string]: number } = {};
+  data?.forEach(r => {
+    const day = r.created_at.split('T')[0].slice(5);
+    byDay[day] = (byDay[day] || 0) + 1;
+  });
+  
+  return Object.entries(byDay).map(([name, value]) => ({ name, value }));
+}
+
+async function getErrorsByType() {
+  const supabase = createAdminClient();
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  
+  const { data } = await supabase
+    .from('error_log')
+    .select('error_type')
+    .gte('occurred_at', weekAgo);
+  
+  const counts: { [key: string]: number } = {};
+  data?.forEach(e => {
+    const type = e.error_type || 'other';
+    counts[type] = (counts[type] || 0) + 1;
+  });
+  
+  return Object.entries(counts).map(([name, value]) => ({ name, value }));
+}
+
+async function getCohortAnalysis() {
+  const supabase = createAdminClient();
+  
   const { data } = await supabase
     .from('profiles')
     .select('created_at')
     .order('created_at', { ascending: true });
-
-  const cohorts: Record<string, number> = {};
+  
+  const cohorts: { [key: string]: number } = {};
   data?.forEach(u => {
     const month = u.created_at.slice(0, 7);
     cohorts[month] = (cohorts[month] || 0) + 1;
   });
-
-  return Object.entries(cohorts).map(([month, count]) => ({ name: month, value: count }));
+  
+  return Object.entries(cohorts).map(([name, value]) => ({ name, value }));
 }
 
-async function getSessionsPerDay(days: number = 14) {
+async function getAutomationComparison() {
   const supabase = createAdminClient();
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
+  const { data } = await supabase.from('records').select('type');
   
-  const { data } = await supabase
-    .from('registros')
-    .select('created_at')
-    .gte('created_at', startDate.toISOString());
-  
-  const byDay: Record<string, number> = {};
-  data?.forEach(r => {
-    const day = r.created_at.split('T')[0];
-    byDay[day] = (byDay[day] || 0) + 1;
-  });
-  
-  return Object.entries(byDay).map(([date, count]) => ({
-    name: date.split('-').slice(1).join('/'),
-    value: count,
-  }));
-}
-
-async function getEntryTypes() {
-  const supabase = createAdminClient();
-  const { data } = await supabase.from('registros').select('tipo');
-  
-  const auto = data?.filter(r => r.tipo === 'automatico').length || 0;
-  const manual = data?.filter(r => r.tipo === 'manual').length || 0;
+  const auto = data?.filter(r => r.type === 'automatic').length || 0;
+  const manual = data?.filter(r => r.type === 'manual').length || 0;
   
   return [
-    { name: 'Automático', value: auto },
+    { name: 'Automatic (Geofence)', value: auto },
     { name: 'Manual', value: manual },
   ];
 }
 
-async function getLoginsPerUser() {
-  const supabase = createAdminClient();
-  
-  const { data: events } = await supabase
-    .from('app_events')
-    .select('user_id')
-    .eq('event_type', 'login');
-  
-  const { data: users } = await supabase
-    .from('profiles')
-    .select('id, email, nome');
-  
-  const counts: Record<string, number> = {};
-  events?.forEach(e => {
-    if (e.user_id) counts[e.user_id] = (counts[e.user_id] || 0) + 1;
-  });
-  
-  return users?.map(u => ({
-    name: u.nome || u.email?.split('@')[0] || '?',
-    value: counts[u.id] || 0,
-  })).filter(u => u.value > 0).sort((a, b) => b.value - a.value).slice(0, 10) || [];
-}
-
 // ============================================
-// DETECT IF USER WANTS VISUALIZATION
+// INTENT DETECTION
 // ============================================
 
-function detectVisualizationIntent(message: string): {
-  wants: boolean;
-  type: 'chart' | 'table' | 'number' | null;
+function detectIntent(message: string): {
+  wants: 'chart' | 'table' | 'number' | 'none';
+  sphere: 'identity' | 'business' | 'product' | 'debug' | 'all' | null;
   topic: string | null;
 } {
-  const lower = message.toLowerCase();
+  const wantsChart = /(chart|graph|visualiz|trend|plot)/i.test(message);
+  const wantsTable = /(table|list|spreadsheet|excel|csv|export)/i.test(message);
+  const wantsNumber = /(how many|total|number|rate|%|count)/i.test(message);
   
-  // Explicit requests for visuals
-  const wantsChart = /(gráfico|grafico|chart|visualiza|plota|desenha|mostra.*gráfico)/i.test(message);
-  const wantsTable = /(tabela|lista|planilha|excel|csv|pdf|exporta|mostre.*dados|lista.*de)/i.test(message);
-  const wantsNumber = /(quantos?|quantas?|total|número|numero)/i.test(message) && 
-                      !/(gráfico|tabela|lista)/i.test(message);
-  const wantsReport = /(relatório|relatorio|report|análise completa|analise completa)/i.test(message);
-
-  if (!wantsChart && !wantsTable && !wantsNumber && !wantsReport) {
-    return { wants: false, type: null, topic: null };
-  }
-
-  // Detect topic
+  let sphere: any = null;
+  if (/(user|cohort|plan|signup|churn)/i.test(message)) sphere = 'identity';
+  else if (/(session|hour|location|automation|manual)/i.test(message)) sphere = 'business';
+  else if (/(feature|onboarding|funnel|notification|ux|product)/i.test(message)) sphere = 'product';
+  else if (/(error|bug|sync|crash|debug|accuracy)/i.test(message)) sphere = 'debug';
+  
   let topic = null;
-  if (/(usuário|usuario|user|cadastro)/i.test(message)) topic = 'users';
-  else if (/(sessão|sessões|sessoes|registro|trabalho)/i.test(message)) topic = 'sessions';
-  else if (/(login|acesso|engajamento|ativo)/i.test(message)) topic = 'logins';
-  else if (/(automático|automatico|manual|tipo|geofence)/i.test(message)) topic = 'entryTypes';
-  else if (/(crescimento|cohort|evolução|mes)/i.test(message)) topic = 'cohort';
-  else if (/(evento|event)/i.test(message)) topic = 'events';
-
+  if (/(session)/i.test(message)) topic = 'sessions';
+  else if (/(error|bug)/i.test(message)) topic = 'errors';
+  else if (/(user)/i.test(message)) topic = 'users';
+  else if (/(automation|manual|geofence)/i.test(message)) topic = 'automation';
+  else if (/(cohort|growth)/i.test(message)) topic = 'cohort';
+  
   return {
-    wants: true,
-    type: wantsChart ? 'chart' : wantsTable ? 'table' : wantsNumber ? 'number' : 'chart',
+    wants: wantsChart ? 'chart' : wantsTable ? 'table' : wantsNumber ? 'number' : 'none',
+    sphere,
     topic,
   };
 }
@@ -264,7 +257,7 @@ function detectVisualizationIntent(message: string): {
 // ============================================
 
 export async function POST(request: Request) {
-  console.log('\n=== DR. ANDRÉ ===');
+  console.log('\n=== DR. ANDRÉ (5 Spheres - EN) ===');
   
   try {
     const { message, history } = await request.json();
@@ -272,95 +265,63 @@ export async function POST(request: Request) {
 
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({
-        message: 'Opa, preciso da API key da OpenAI configurada no .env.local pra funcionar.',
+        message: 'Configure OPENAI_API_KEY in .env.local',
         visualization: null,
       });
     }
 
-    // Get base metrics
     const metrics = await getMetrics();
+    const intent = detectIntent(message);
     
-    // Check visualization intent
-    const vizIntent = detectVisualizationIntent(message);
     let visualization = null;
     let dataContext = '';
 
-    if (vizIntent.wants) {
-      console.log('Viz intent:', vizIntent);
+    if (intent.wants !== 'none') {
+      console.log('Intent:', intent);
 
-      // Generate appropriate visualization
-      if (vizIntent.topic === 'users' || vizIntent.topic === 'cohort') {
-        if (vizIntent.type === 'table') {
-          const data = await queryDB('profiles', { limit: 30, orderBy: 'created_at', desc: true });
-          visualization = { type: 'table', title: 'Usuários', data, columns: ['email', 'nome', 'trade', 'device_platform', 'created_at'], downloadable: true };
-          dataContext = `\n[Tabela gerada com ${data.length} usuários]`;
+      if (intent.topic === 'sessions' || (intent.sphere === 'business' && intent.wants === 'chart')) {
+        const data = await getSessionsTrend(14);
+        visualization = { type: 'chart', chartType: 'line', title: 'Sessions per Day', data, downloadable: true };
+        dataContext = `\n[Sessions chart: ${JSON.stringify(data)}]`;
+      }
+      else if (intent.topic === 'errors' || intent.sphere === 'debug') {
+        const data = await getErrorsByType();
+        visualization = { type: 'chart', chartType: 'bar', title: 'Errors by Type', data, downloadable: true };
+        dataContext = `\n[Errors by type: ${JSON.stringify(data)}]`;
+      }
+      else if (intent.topic === 'users' || intent.sphere === 'identity') {
+        if (intent.topic === 'cohort' || intent.wants === 'chart') {
+          const data = await getCohortAnalysis();
+          visualization = { type: 'chart', chartType: 'bar', title: 'Users by Month (Cohort)', data, downloadable: true };
+          dataContext = `\n[Cohort: ${JSON.stringify(data)}]`;
         } else {
-          const data = await getCohortData();
-          visualization = { type: 'chart', chartType: 'bar', title: 'Usuários por Mês', data, downloadable: true };
-          dataContext = `\n[Gráfico gerado: ${JSON.stringify(data)}]`;
+          visualization = { type: 'number', value: metrics.users.toString(), title: 'Total Users' };
         }
       }
-      else if (vizIntent.topic === 'sessions') {
-        if (vizIntent.type === 'table') {
-          const data = await queryDB('registros', { limit: 30, orderBy: 'created_at', desc: true });
-          visualization = { type: 'table', title: 'Sessões de Trabalho', data, columns: ['local_nome', 'entrada', 'saida', 'tipo', 'created_at'], downloadable: true };
-          dataContext = `\n[Tabela gerada com ${data.length} sessões]`;
-        } else {
-          const data = await getSessionsPerDay(14);
-          visualization = { type: 'chart', chartType: 'line', title: 'Sessões por Dia', data, downloadable: true };
-          dataContext = `\n[Gráfico gerado: ${JSON.stringify(data)}]`;
-        }
-      }
-      else if (vizIntent.topic === 'logins') {
-        const data = await getLoginsPerUser();
-        visualization = { type: 'chart', chartType: 'bar', title: 'Logins por Usuário', data, downloadable: true };
-        dataContext = `\n[Gráfico gerado: ${JSON.stringify(data)}]`;
-      }
-      else if (vizIntent.topic === 'entryTypes') {
-        const data = await getEntryTypes();
-        visualization = { type: 'chart', chartType: 'pie', title: 'Automático vs Manual', data, downloadable: true };
-        dataContext = `\n[Gráfico gerado: ${JSON.stringify(data)}]`;
-      }
-      else if (vizIntent.topic === 'events') {
-        const data = await queryDB('app_events', { limit: 30, orderBy: 'created_at', desc: true });
-        visualization = { type: 'table', title: 'Eventos', data, columns: ['event_type', 'user_id', 'app_version', 'created_at'], downloadable: true };
-        dataContext = `\n[Tabela gerada com ${data.length} eventos]`;
-      }
-      else if (vizIntent.type === 'number') {
-        // Default to user count
-        visualization = { type: 'number', value: metrics.users.toString(), title: 'Total de Usuários' };
-      }
-      else {
-        // Default chart: sessions per day
-        const data = await getSessionsPerDay(14);
-        visualization = { type: 'chart', chartType: 'line', title: 'Atividade Recente', data, downloadable: true };
-        dataContext = `\n[Gráfico gerado: ${JSON.stringify(data)}]`;
+      else if (intent.topic === 'automation') {
+        const data = await getAutomationComparison();
+        visualization = { type: 'chart', chartType: 'pie', title: 'Automatic vs Manual', data, downloadable: true };
+        dataContext = `\n[Automation: ${JSON.stringify(data)}]`;
       }
     }
 
-    // Build conversational prompt
     const systemPrompt = `${ANALYST_PERSONA}
 
-${DATABASE_CONTEXT}
+${DATABASE_SCHEMA}
 
-# Números atuais (use naturalmente na conversa)
-- Usuários: ${metrics.users}
-- Sessões: ${metrics.sessions}
-- Locais ativos: ${metrics.locais}
-- Taxa de automação: ${metrics.automationRate}%
-- Logins hoje: ${metrics.todayLogins}
+# Current Metrics
+- **Identity:** ${metrics.users} users
+- **Business:** ${metrics.sessions} sessions, ${metrics.locations} locations, ${metrics.automationRate}% automation
+- **Debug:** ${metrics.errors7d} errors (7 days), ${metrics.syncRate}% sync success
 ${dataContext}
 
-${visualization ? `\nO usuário pediu uma visualização e ela foi gerada. Comente brevemente sobre o que os dados mostram, de forma natural.` : ''}
+${visualization ? `\nA visualization was generated (${visualization.type}: ${visualization.title}). Comment briefly on the data.` : ''}
 
-Lembre-se: converse naturalmente, como um colega. Só estruture em formato de relatório se pedirem explicitamente.`;
+Respond naturally and conversationally. Only structure as a report if explicitly asked.`;
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
-      ...history.slice(-10).map((m: any) => ({ 
-        role: m.role as 'user' | 'assistant', 
-        content: m.content 
-      })),
+      ...history.slice(-10).map((m: any) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
       { role: 'user', content: message },
     ];
 
@@ -369,24 +330,19 @@ Lembre-se: converse naturalmente, como um colega. Só estruture em formato de re
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages,
-      temperature: 0.8, // Mais criativo/humano
+      temperature: 0.8,
       max_tokens: 1500,
     });
 
-    const aiMessage = response.choices[0].message.content || 'Hmm, não consegui processar isso. Pode reformular?';
-    console.log('Response OK');
+    const aiMessage = response.choices[0].message.content || 'Hmm, I could not process that.';
     console.log('=== END ===\n');
 
-    return NextResponse.json({
-      message: aiMessage,
-      visualization,
-    });
+    return NextResponse.json({ message: aiMessage, visualization });
 
   } catch (error: any) {
     console.error('Error:', error.message);
-    
     return NextResponse.json({
-      message: `Eita, deu um erro aqui: ${error.message}`,
+      message: `Oops, there was an error: ${error.message}`,
       visualization: null,
     }, { status: 500 });
   }
