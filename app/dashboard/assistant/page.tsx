@@ -472,7 +472,7 @@ export default function AssistantPage() {
     {
       id: '1',
       role: 'assistant',
-      content: 'E aí! Sou o Dr. André, seu analista de dados. Pode me perguntar qualquer coisa sobre os números do OnSite, ou usar os atalhos aí do lado pra gerar análises rapidinho. No que posso ajudar?',
+      content: 'E aí! Sou o Teletraan9, seu data analyst. Pode me perguntar qualquer coisa sobre os números do OnSite, ou usar os atalhos aí do lado pra gerar análises rapidinho. No que posso ajudar?',
       timestamp: new Date(),
     }
   ]);
@@ -638,7 +638,7 @@ export default function AssistantPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title="Dr. André - Assistente IA" description="Análise inteligente com gráficos e tabelas editáveis" />
+      <Header title="Teletraan9 - AI Data Analyst" description="Análise inteligente com gráficos e tabelas editáveis" />
 
       <div className="flex-1 flex overflow-hidden">
         {/* Chat Area */}
