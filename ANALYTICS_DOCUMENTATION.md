@@ -1,762 +1,485 @@
-# 📊 OnSite Analytics Dashboard
+# 🔖 Sistema de Referência (Ref #)
 
-## Documentação Técnica e Conceitual
+## Documentação do Código de Referência para Relatórios PDF
 
-> Sistema de analytics para o ecossistema OnSite Club.  
-> Versão: 2.0 | Janeiro 2025
+> Sistema de identificação única para rastreamento de relatórios exportados.  
+> Implementado em Janeiro 2025
 
 ---
 
 ## 📋 Índice
 
 1. [Visão Geral](#1-visão-geral)
-2. [Arquitetura do Sistema](#2-arquitetura-do-sistema)
-3. [As 5 Esferas de Dados](#3-as-5-esferas-de-dados)
-4. [Fluxo de Dados](#4-fluxo-de-dados)
-5. [Páginas do Dashboard](#5-páginas-do-dashboard)
-6. [Sistema de IA (Teletraan9)](#6-sistema-de-ia-teletraan9)
-7. [Tecnologias Utilizadas](#7-tecnologias-utilizadas)
-8. [Estrutura de Arquivos](#8-estrutura-de-arquivos)
+2. [Formato do Código](#2-formato-do-código)
+3. [Códigos de Região](#3-códigos-de-região)
+4. [Como Decodificar](#4-como-decodificar)
+5. [Busca no Supabase](#5-busca-no-supabase)
+6. [Integração com Teletraan9](#6-integração-com-teletraan9)
+7. [Implementação Técnica](#7-implementação-técnica)
 
 ---
 
 ## 1. Visão Geral
 
-### O que é o OnSite Analytics?
+### O que é o Ref #?
 
-O OnSite Analytics é um dashboard administrativo que transforma dados brutos do aplicativo OnSite Timekeeper em **informações acionáveis** para tomada de decisão. Ele responde perguntas críticas sobre:
+O **Ref #** (Reference Number) é um código único gerado em cada relatório PDF exportado pelo app OnSite Timekeeper. Ele permite:
 
-- **Quem** são os usuários? (Identity)
-- **Quanto valor** está sendo gerado? (Business)
-- **Como** os usuários interagem com o app? (Product)
-- **O sistema está saudável?** (Debug)
+1. **Identificar o usuário** - Mesmo sem acesso ao email
+2. **Verificar autenticidade** - Confirmar que o relatório é legítimo
+3. **Suporte eficiente** - Localizar rapidamente os dados do cliente
+4. **Auditoria** - Rastrear quando e por quem o relatório foi gerado
 
-### Por que ele existe?
+### Por que não usar o User ID diretamente?
 
-O aplicativo móvel OnSite Timekeeper coleta dados de ponto eletrônico para trabalhadores da construção civil. Sem um dashboard analítico, esses dados ficariam isolados nos dispositivos e no banco de dados, sem gerar insights.
-
-O Analytics existe para:
-
-1. **Monitorar a saúde do negócio** - Quantos usuários ativos? Quantas horas rastreadas?
-2. **Identificar problemas** - Onde os usuários abandonam? Quais dispositivos têm erros?
-3. **Guiar decisões de produto** - Quais features são mais usadas? O geofence funciona bem?
-4. **Prever churn** - Quais usuários estão inativos? Qual cohort retém melhor?
+- **Privacidade**: O UUID completo é muito longo e expõe mais informação que o necessário
+- **Praticidade**: O Ref # é curto e fácil de comunicar por telefone ou email
+- **Contexto**: Inclui informações úteis como região e data de exportação
+- **Segurança**: Não é possível deduzir o UUID completo a partir do suffix
 
 ---
 
-## 2. Arquitetura do Sistema
-
-### Diagrama de Alto Nível
+## 2. Formato do Código
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        USUÁRIO FINAL                                │
-│                    (Trabalhador de Obra)                            │
-└─────────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                     ONSITE TIMEKEEPER APP                           │
-│                      (React Native + Expo)                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │
-│  │  Geofence   │  │   Records   │  │  Analytics  │                 │
-│  │  Tracking   │  │   (Ponto)   │  │   Daily     │                 │
-│  └─────────────┘  └─────────────┘  └─────────────┘                 │
-│         │                │                │                         │
-│         └────────────────┼────────────────┘                         │
-│                          ▼                                          │
-│                    SQLite Local                                     │
-│              (Funciona 100% Offline)                                │
-└─────────────────────────────────────────────────────────────────────┘
-                                │
-                                │ SYNC (quando online)
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                         SUPABASE                                    │
-│                    (PostgreSQL + Auth)                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────┐  │
-│  │  profiles   │  │  locations  │  │   records   │  │ analytics │  │
-│  │  (users)    │  │  (geofences)│  │  (sessions) │  │   daily   │  │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └───────────┘  │
-│  ┌─────────────┐  ┌─────────────┐                                   │
-│  │  error_log  │  │  location   │                                   │
-│  │  (bugs)     │  │   audit     │                                   │
-│  └─────────────┘  └─────────────┘                                   │
-└─────────────────────────────────────────────────────────────────────┘
-                                │
-                                │ QUERIES (real-time)
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    ONSITE ANALYTICS DASHBOARD                       │
-│                        (Next.js 14)                                 │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────┐  │
-│  │  Overview   │  │  Identity   │  │  Business   │  │  Product  │  │
-│  │   (KPIs)    │  │  (Users)    │  │ (Sessions)  │  │   (UX)    │  │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └───────────┘  │
-│  ┌─────────────┐  ┌─────────────────────────────────────────────┐  │
-│  │   Debug     │  │              TELETRAAN9                     │  │
-│  │  (Errors)   │  │         (AI Data Analyst)                   │  │
-│  └─────────────┘  └─────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                         ADMINISTRADOR                               │
-│                  (Product Manager / Developer)                      │
-└─────────────────────────────────────────────────────────────────────┘
+Ref #   QC-A3F8-0106-03
+        │   │    │    │
+        │   │    │    └── Quantidade de sessões no relatório
+        │   │    └─────── Data de exportação (MMDD)
+        │   └──────────── Últimos 4 caracteres do user_id
+        └──────────────── Código da região
 ```
 
-### Componentes Principais
+### Componentes
 
-| Componente | Tecnologia | Função |
-|------------|------------|--------|
-| App Mobile | React Native + Expo | Coleta dados de ponto |
-| SQLite | expo-sqlite | Armazena dados offline |
-| Supabase | PostgreSQL | Banco de dados cloud |
-| Dashboard | Next.js 14 | Interface de analytics |
-| Teletraan9 | GPT-4o | Análise conversacional |
-| Recharts | React | Visualização de dados |
+| Posição | Nome | Exemplo | Descrição |
+|---------|------|---------|-----------|
+| 1-2 | Region Code | `QC` | Código da província/estado/região |
+| 4-7 | User Suffix | `A3F8` | Últimos 4 chars do UUID (hexadecimal) |
+| 9-12 | Export Date | `0106` | Mês (01-12) + Dia (01-31) |
+| 14-15 | Session Count | `03` | Número de sessões no relatório |
+
+### Exemplos
+
+| Ref # | Significado |
+|-------|-------------|
+| `QC-A3F8-0106-03` | Quebec, user ...a3f8, 6 de Janeiro, 3 sessões |
+| `ON-B2C1-1225-12` | Ontario, user ...b2c1, 25 de Dezembro, 12 sessões |
+| `BC-9DEF-0715-01` | British Columbia, user ...9def, 15 de Julho, 1 sessão |
 
 ---
 
-## 3. As 5 Esferas de Dados
+## 3. Códigos de Região
 
-O sistema organiza todos os dados em **5 esferas conceituais**. Cada esfera responde a um tipo diferente de pergunta.
+### Canadá
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                      5 ESFERAS DE DADOS                             │
-├─────────────┬─────────────┬─────────────┬─────────────┬─────────────┤
-│  IDENTITY   │  BUSINESS   │   PRODUCT   │    DEBUG    │  METADATA   │
-│   (Quem)    │   (Valor)   │    (UX)     │   (Bugs)    │ (Contexto)  │
-├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
-│ Segmentação │    KPIs     │  Features   │   Erros     │   Versão    │
-│   Cohorts   │   Horas     │  Onboarding │    Sync     │     OS      │
-│    Churn    │  Automação  │   Retenção  │    GPS      │   Device    │
-└─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
-```
+| Código | Província/Território |
+|--------|---------------------|
+| `QC` | Quebec |
+| `ON` | Ontario |
+| `BC` | British Columbia |
+| `AB` | Alberta |
+| `MB` | Manitoba |
+| `SK` | Saskatchewan |
+| `NS` | Nova Scotia |
+| `NB` | New Brunswick |
+| `NL` | Newfoundland and Labrador |
+| `PE` | Prince Edward Island |
+| `YT` | Yukon |
+| `NT` | Northwest Territories |
+| `NU` | Nunavut |
 
-### 3.1 IDENTITY - Quem são os usuários?
+### Estados Unidos
 
-**Propósito:** Entender a base de usuários para segmentação e predição de churn.
+| Código | Região |
+|--------|--------|
+| `NE` | Northeast |
+| `SE` | Southeast |
+| `MW` | Midwest |
+| `SW` | Southwest |
+| `WE` | West |
+| `AK` | Alaska |
+| `HI` | Hawaii |
 
-| Dado Coletado | Fonte | Por que importa |
-|---------------|-------|-----------------|
-| `user_id` | Supabase Auth | Identificação única |
-| `email` | Cadastro | Comunicação |
-| `name` | Cadastro | Personalização |
-| `plan_type` | Sistema | Segmentação por receita |
-| `device_platform` | App | iOS vs Android |
-| `created_at` | Auth | Análise de cohort |
-| `last_active_at` | Analytics | Detecção de churn |
+### Outros
 
-**Perguntas que responde:**
-- Quantos usuários novos este mês?
-- Qual plataforma domina (iOS/Android)?
-- Quais usuários estão inativos há 30 dias?
-- Qual cohort (mês de cadastro) retém melhor?
+| Código | Região |
+|--------|--------|
+| `EU` | Europe |
+| `NA` | North America (Other) |
+| `AF` | Africa |
+| `SA` | South America |
 
----
+### Determinação Automática da Região
 
-### 3.2 BUSINESS - Quanto valor está sendo gerado?
+A região é determinada automaticamente pelo app com base no `timezone` do usuário:
 
-**Propósito:** Medir o core business - horas de trabalho rastreadas.
-
-| Dado Coletado | Fonte | Por que importa |
-|---------------|-------|-----------------|
-| `sessions_count` | records | Volume de uso |
-| `total_minutes` | records | Valor entregue |
-| `locations_count` | locations | Engajamento |
-| `auto_entries` | records | Geofence funciona? |
-| `manual_entries` | records | Fricção do usuário |
-
-**Perguntas que responde:**
-- Quantas horas foram rastreadas esta semana?
-- Qual a taxa de automação (geofence vs manual)?
-- Qual o tempo médio de sessão?
-- Quantos locais de trabalho foram cadastrados?
-
-**Cálculo da Taxa de Automação:**
 ```typescript
-automationRate = (auto_entries / (auto_entries + manual_entries)) * 100
+function getRegionFromTimezone(timezone: string): string {
+  if (timezone.includes('Toronto') || timezone.includes('Eastern')) return 'ON';
+  if (timezone.includes('Montreal') || timezone.includes('Quebec')) return 'QC';
+  if (timezone.includes('Vancouver') || timezone.includes('Pacific')) return 'BC';
+  if (timezone.includes('Edmonton') || timezone.includes('Mountain')) return 'AB';
+  // ... etc
+  return 'NA'; // Fallback
+}
 ```
-
-Uma taxa alta (>70%) indica que o geofencing está funcionando bem e os usuários confiam no sistema automático.
 
 ---
 
-### 3.3 PRODUCT - Como os usuários interagem?
+## 4. Como Decodificar
 
-**Propósito:** Guiar decisões de produto e priorização de features.
+### Manual
 
-| Dado Coletado | Fonte | Por que importa |
-|---------------|-------|-----------------|
-| `app_opens` | analytics_daily | Engajamento diário |
-| `app_foreground_seconds` | analytics_daily | Tempo de uso |
-| `features_used` | analytics_daily | Quais features usam |
-| `notifications_shown` | analytics_daily | Push funciona? |
-| `notifications_actioned` | analytics_daily | Push é relevante? |
+1. **Separe pelos hífens**: `QC-A3F8-0106-03` → `['QC', 'A3F8', '0106', '03']`
+2. **Região**: `QC` = Quebec
+3. **User Suffix**: `A3F8` = ID do usuário termina em `a3f8`
+4. **Data**: `0106` = Mês 01, Dia 06 = 6 de Janeiro
+5. **Sessões**: `03` = 3 sessões no relatório
 
-**Perguntas que responde:**
-- Quantas vezes o app é aberto por dia?
-- Qual o tempo médio de uso?
-- Quais features são mais populares?
-- Os usuários respondem às notificações?
+### Via Dashboard (Support Page)
 
-**Funil de Onboarding:**
-```
-Signup → Email Verified → First Location → First Session → First Export
-  100%       85%              60%              45%            20%
-```
+1. Acesse `/dashboard/support`
+2. Cole o Ref # no campo de busca
+3. Clique em "Decode"
+4. Veja os dados decodificados e SQL para busca
 
-Identificar onde os usuários "caem" do funil ajuda a priorizar melhorias.
+### Via Teletraan9 (AI)
 
----
+Simplesmente pergunte:
 
-### 3.4 DEBUG - O sistema está saudável?
+> "Busca o cliente QC-A3F8-0106-03"
 
-**Propósito:** Monitorar estabilidade e identificar problemas antes dos usuários.
-
-| Dado Coletado | Fonte | Por que importa |
-|---------------|-------|-----------------|
-| `error_type` | error_log | Categorização |
-| `error_message` | error_log | Diagnóstico |
-| `sync_failures` | analytics_daily | Conectividade |
-| `geofence_accuracy` | analytics_daily | Hardware/GPS |
-| `app_version` | error_log | Regressões |
-| `device_model` | error_log | Device-specific bugs |
-
-**Tipos de Erro:**
-| Tipo | Descrição | Severidade |
-|------|-----------|------------|
-| `crash` | App fechou inesperadamente | 🔴 Crítico |
-| `api` | Falha de comunicação com servidor | 🟠 Alto |
-| `sync` | Dados não sincronizaram | 🟠 Alto |
-| `geofence` | Geofence não disparou corretamente | 🟡 Médio |
-| `auth` | Problema de autenticação | 🟡 Médio |
-
-**Perguntas que responde:**
-- Quantos erros ocorreram nos últimos 7 dias?
-- Qual versão do app tem mais problemas?
-- Quais dispositivos apresentam mais erros?
-- O sync está funcionando (taxa de sucesso)?
+O Teletraan9 vai:
+1. Detectar o Ref # automaticamente
+2. Decodificar os componentes
+3. Buscar o usuário no banco
+4. Retornar as informações encontradas
 
 ---
 
-### 3.5 METADATA - Contexto técnico
+## 5. Busca no Supabase
 
-**Propósito:** Permitir reprodução de bugs e decisões de suporte.
-
-| Dado Coletado | Fonte | Por que importa |
-|---------------|-------|-----------------|
-| `app_version` | App | Qual build |
-| `os` | App | iOS ou Android |
-| `os_version` | App | Compatibilidade |
-| `device_model` | App | Hardware específico |
-
-Metadata não é exibido diretamente, mas é crucial para **correlacionar** problemas. Exemplo: "90% dos erros de geofence ocorrem no Samsung Galaxy A10 com Android 9".
-
----
-
-## 4. Fluxo de Dados
-
-### 4.1 Coleta (App → SQLite)
-
-O app mobile coleta dados de forma **event-driven** e **agregada**:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                      EVENTOS DO APP                                 │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌─────────────┐                                                    │
-│  │ App Opened  │ ──▶ analytics_daily.app_opens++                    │
-│  └─────────────┘                                                    │
-│                                                                     │
-│  ┌─────────────┐                                                    │
-│  │  Geofence   │ ──▶ records.insert({ type: 'automatic' })          │
-│  │   Entry     │     location_audit.insert({ event: 'entry' })      │
-│  └─────────────┘     analytics_daily.auto_entries++                 │
-│                                                                     │
-│  ┌─────────────┐                                                    │
-│  │  Geofence   │ ──▶ records.update({ exit_at: now })               │
-│  │    Exit     │     location_audit.insert({ event: 'exit' })       │
-│  └─────────────┘     analytics_daily.total_minutes += duration      │
-│                                                                     │
-│  ┌─────────────┐                                                    │
-│  │   Error     │ ──▶ error_log.insert({ type, message, stack })     │
-│  │  Occurred   │     analytics_daily.errors_count++                 │
-│  └─────────────┘                                                    │
-│                                                                     │
-│  ┌─────────────┐                                                    │
-│  │  Feature    │ ──▶ analytics_daily.features_used.push('export')   │
-│  │   Used      │                                                    │
-│  └─────────────┘                                                    │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**Por que agregado por dia?**
-
-Em vez de enviar cada evento individualmente (o que consumiria bateria e banda), o app agrega métricas na tabela `analytics_daily`:
+### Query Passo a Passo
 
 ```sql
--- Uma linha por usuário por dia
-PRIMARY KEY (date, user_id)
+-- ==========================================
+-- PASSO 1: Encontrar o usuário pelo suffix
+-- ==========================================
+-- Para Ref # QC-A3F8-0106-03, o suffix é 'a3f8'
+
+SELECT id, email, name, plan_type, created_at, last_active_at
+FROM profiles
+WHERE id::text LIKE '%a3f8';
+
+-- Resultado esperado: 1 usuário (ou 0 se não existir)
+
+-- ==========================================
+-- PASSO 2: Verificar sessões na data
+-- ==========================================
+-- Substitua <USER_ID> pelo ID encontrado no passo 1
+-- Data: 0106 = 2025-01-06 (assumindo ano atual)
+
+SELECT 
+  id,
+  location_name,
+  entry_at,
+  exit_at,
+  type,
+  EXTRACT(EPOCH FROM (exit_at - entry_at)) / 60 AS duration_minutes
+FROM records
+WHERE user_id = '<USER_ID>'
+AND DATE(entry_at) = '2025-01-06'
+ORDER BY entry_at;
+
+-- Resultado esperado: 3 sessões (conforme o Ref #)
+
+-- ==========================================
+-- PASSO 3: Confirmar contagem
+-- ==========================================
+
+SELECT COUNT(*) AS session_count
+FROM records
+WHERE user_id = '<USER_ID>'
+AND DATE(entry_at) = '2025-01-06';
+
+-- Se retornar 3, o Ref # está correto ✅
 ```
 
-Isso reduz:
-- **Tamanho do banco** de milhões de eventos para milhares de linhas
-- **Tempo de query** de segundos para milissegundos
-- **Custo de storage** significativamente
+### Query Única (Avançada)
+
+```sql
+-- Query combinada para verificação rápida
+WITH user_found AS (
+  SELECT id, email, name
+  FROM profiles
+  WHERE id::text LIKE '%a3f8'
+  LIMIT 1
+)
+SELECT 
+  u.email,
+  u.name,
+  COUNT(r.id) AS session_count,
+  SUM(EXTRACT(EPOCH FROM (r.exit_at - r.entry_at)) / 3600) AS total_hours
+FROM user_found u
+LEFT JOIN records r ON r.user_id = u.id AND DATE(r.entry_at) = '2025-01-06'
+GROUP BY u.email, u.name;
+```
 
 ---
 
-### 4.2 Sincronização (SQLite → Supabase)
+## 6. Integração com Teletraan9
 
-O sync ocorre em momentos estratégicos para economizar bateria:
+### Detecção Automática
 
-| Trigger | Quando | O que sincroniza |
-|---------|--------|------------------|
-| App Init | Ao abrir o app | Tudo pendente |
-| Midnight | 00:00 local | analytics_daily do dia anterior |
-| After Action | Criar location, finalizar sessão | Dado específico |
-| Manual | Botão de sync | Tudo pendente |
+O Teletraan9 detecta automaticamente códigos Ref # em mensagens do usuário:
 
 ```typescript
-// Fluxo simplificado de sync
-async function syncNow() {
-  // 1. Upload dados locais pendentes
-  await uploadPending('locations');
-  await uploadPending('records');
-  await uploadPending('analytics_daily');
-  await uploadPending('error_log');
+function detectRefCode(message: string): DecodedRef | null {
+  const patterns = [
+    /Ref\s*#?\s*([A-Z]{2}-[A-F0-9]{4}-\d{4}-\d{2})/i,
+    /([A-Z]{2}-[A-F0-9]{4}-\d{4}-\d{2})/i,
+  ];
   
-  // 2. Download dados do servidor (multi-device)
-  await downloadFromServer('locations');
-  await downloadFromServer('records');
-  
-  // 3. Cleanup dados antigos já sincronizados
-  await cleanupOldData();
-}
-```
-
----
-
-### 4.3 Transformação (Supabase → Dashboard)
-
-O Dashboard faz queries em tempo real ao Supabase e transforma dados brutos em métricas visuais:
-
-```typescript
-// Exemplo: Calcular taxa de automação
-async function getAutomationRate() {
-  const { data } = await supabase
-    .from('records')
-    .select('type');
-  
-  const auto = data.filter(r => r.type === 'automatic').length;
-  const total = data.length;
-  
-  return Math.round((auto / total) * 100);
-}
-```
-
-```typescript
-// Exemplo: Gerar dados para gráfico de sessões
-async function getSessionsTrend(days: number) {
-  const { data } = await supabase
-    .from('records')
-    .select('created_at')
-    .gte('created_at', daysAgo(days));
-  
-  // Agrupar por dia
-  const byDay = {};
-  data.forEach(r => {
-    const day = r.created_at.split('T')[0];
-    byDay[day] = (byDay[day] || 0) + 1;
-  });
-  
-  // Formato para Recharts
-  return Object.entries(byDay).map(([name, value]) => ({ name, value }));
-}
-```
-
----
-
-### 4.4 Visualização (Dashboard → Usuário)
-
-Os dados transformados são renderizados usando **Recharts**:
-
-```tsx
-// Gráfico de linha para tendência de sessões
-<LineChart data={sessionsTrend}>
-  <XAxis dataKey="name" />
-  <YAxis />
-  <Tooltip />
-  <Line 
-    type="monotone" 
-    dataKey="value" 
-    stroke="#3b82f6" 
-    strokeWidth={2} 
-  />
-</LineChart>
-```
-
-```tsx
-// Gráfico de pizza para automação
-<PieChart>
-  <Pie data={[
-    { name: 'Automatic', value: 75 },
-    { name: 'Manual', value: 25 }
-  ]} />
-</PieChart>
-```
-
----
-
-## 5. Páginas do Dashboard
-
-### 5.1 Overview
-
-**Propósito:** Visão executiva das 5 esferas em uma única tela.
-
-**Layout:**
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  IDENTITY                                                           │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐               │
-│  │ Total    │ │ Active   │ │ New This │ │ Platform │               │
-│  │ Users    │ │ Today    │ │ Month    │ │ Pie      │               │
-│  │   45     │ │   12     │ │    8     │ │ iOS/And  │               │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘               │
-├─────────────────────────────────────────────────────────────────────┤
-│  BUSINESS                                                           │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐               │
-│  │ Sessions │ │ Hours    │ │ Locations│ │ Auto %   │               │
-│  │  1,234   │ │  5,678h  │ │    89    │ │   72%    │               │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘               │
-│  ┌──────────────────────────────────────────────────┐               │
-│  │         Sessions per Day (Line Chart)            │               │
-│  └──────────────────────────────────────────────────┘               │
-├─────────────────────────────────────────────────────────────────────┤
-│  PRODUCT                                                            │
-│  ┌──────────┐ ┌──────────┐ ┌──────────────────────┐                │
-│  │ Avg Opens│ │ Time in  │ │    Top Features      │                │
-│  │  3.2/day │ │ App 8min │ │ • Export  • Edit     │                │
-│  └──────────┘ └──────────┘ └──────────────────────┘                │
-├─────────────────────────────────────────────────────────────────────┤
-│  DEBUG                                                              │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐               │
-│  │ Errors   │ │ Sync     │ │ GPS Acc  │ │ By Type  │               │
-│  │ 7 days:3 │ │ Rate 98% │ │  15m     │ │ sync:2   │               │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘               │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**Métricas calculadas:**
-- Total Users: `COUNT(*) FROM profiles`
-- Active Today: `COUNT(*) FROM profiles WHERE last_active_at >= today`
-- Automation Rate: `SUM(auto_entries) / SUM(auto + manual) * 100`
-- Sync Rate: `(1 - sync_failures / sync_attempts) * 100`
-
----
-
-### 5.2 Identity
-
-**Propósito:** Análise profunda da base de usuários.
-
-**Seções:**
-1. **KPIs** - Total, ativos (hoje/semana/mês), novos, churned
-2. **Distribuição por Plano** - Pie chart (free/pro/enterprise)
-3. **Distribuição por Plataforma** - Pie chart (iOS/Android)
-4. **Análise de Cohort** - Bar chart (usuários por mês de cadastro)
-5. **Tabela de Usuários** - Lista com email, plano, última atividade
-
-**Query principal:**
-```typescript
-// Cohort analysis
-const { data } = await supabase
-  .from('profiles')
-  .select('created_at');
-
-// Agrupar por mês
-const cohorts = {};
-data.forEach(u => {
-  const month = u.created_at.slice(0, 7); // "2025-01"
-  cohorts[month] = (cohorts[month] || 0) + 1;
-});
-```
-
----
-
-### 5.3 Business
-
-**Propósito:** Métricas de valor do negócio.
-
-**Seções:**
-1. **KPIs** - Sessões totais, horas rastreadas, locais, automação
-2. **Manual vs Automático** - Pie chart
-3. **Sessões por Dia** - Line chart (14 dias)
-4. **Top Locais** - Bar chart horizontal
-5. **Sessões Recentes** - Tabela com local, entrada, saída, tipo
-
-**Cálculo de horas:**
-```typescript
-// Calcular horas totais
-let totalMinutes = 0;
-sessions.forEach(s => {
-  if (s.entry_at && s.exit_at) {
-    const ms = new Date(s.exit_at) - new Date(s.entry_at);
-    totalMinutes += ms / 60000;
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match) {
+      const decoded = decodeRefCode(match[1]);
+      if (decoded.isValid) return decoded;
+    }
   }
-});
-const totalHours = Math.round(totalMinutes / 60);
-```
-
----
-
-### 5.4 Product
-
-**Propósito:** UX, engagement e retenção.
-
-**Seções:**
-1. **KPIs** - Aberturas médias, tempo no app, taxa de notificação
-2. **Funil de Onboarding** - Bar chart horizontal (signup → export)
-3. **Top Features** - Bar chart vertical
-4. **Pontos de Abandono** - Lista de onde usuários desistem
-
-**Taxa de resposta a notificações:**
-```typescript
-const rate = (notifications_actioned / notifications_shown) * 100;
-// Benchmark: >30% é bom
-```
-
----
-
-### 5.5 Debug
-
-**Propósito:** Saúde do sistema e debugging.
-
-**Seções:**
-1. **Status Badge** - "System Healthy" ou "Attention Needed"
-2. **KPIs** - Erros (7d), erros hoje, sync rate, GPS accuracy
-3. **Erros por Tipo** - Pie chart (crash/api/sync/geofence/auth)
-4. **Tendência de Erros** - Line chart (7 dias)
-5. **Top Devices com Erros** - Lista
-6. **Top Versions com Erros** - Lista
-7. **Tabela de Erros** - Log detalhado
-
-**Critérios de "System Healthy":**
-```typescript
-const isHealthy = 
-  totalErrors < 10 && 
-  syncSuccessRate >= 95;
-```
-
----
-
-## 6. Sistema de IA (Teletraan9)
-
-### O que é?
-
-Teletraan9 é um assistente de IA integrado ao dashboard que permite **análise conversacional** dos dados. Em vez de navegar por múltiplas telas, o administrador pode simplesmente perguntar:
-
-> "Quantos usuários novos tivemos essa semana?"  
-> "Mostre um gráfico de sessões dos últimos 14 dias"  
-> "Qual dispositivo está tendo mais erros?"
-
-### Arquitetura
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         TELETRAAN9                                  │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│   ┌──────────────┐         ┌──────────────┐         ┌────────────┐ │
-│   │    User      │         │   Intent     │         │  Database  │ │
-│   │   Message    │────────▶│  Detection   │────────▶│   Query    │ │
-│   └──────────────┘         └──────────────┘         └────────────┘ │
-│                                   │                        │        │
-│                                   │                        │        │
-│                                   ▼                        ▼        │
-│                            ┌──────────────┐         ┌────────────┐ │
-│                            │    GPT-4o    │◀────────│   Context  │ │
-│                            │   (OpenAI)   │         │    Data    │ │
-│                            └──────────────┘         └────────────┘ │
-│                                   │                                 │
-│                                   ▼                                 │
-│   ┌──────────────┐         ┌──────────────┐                        │
-│   │   Response   │◀────────│ Visualization│                        │
-│   │    + Chart   │         │   (if any)   │                        │
-│   └──────────────┘         └──────────────┘                        │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### Detecção de Intent
-
-O sistema analisa a mensagem do usuário para identificar:
-
-1. **Tipo de output desejado:** chart, table, number, none
-2. **Esfera de dados:** identity, business, product, debug
-3. **Tópico específico:** sessions, users, errors, automation
-
-```typescript
-function detectIntent(message: string) {
-  // Quer gráfico?
-  const wantsChart = /(chart|graph|visualiz|trend)/i.test(message);
   
-  // Qual esfera?
-  let sphere = null;
-  if (/(user|cohort|churn)/i.test(message)) sphere = 'identity';
-  else if (/(session|hour|automation)/i.test(message)) sphere = 'business';
-  
-  return { wantsChart, sphere };
+  return null;
 }
 ```
 
-### Geração de Visualizações
+### Exemplos de Perguntas
 
-Se o intent indica que o usuário quer um gráfico, o sistema:
+| Pergunta do Usuário | Ação do Teletraan9 |
+|--------------------|-------------------|
+| "Busca o cliente QC-A3F8-0106-03" | Decodifica → Busca user → Retorna dados |
+| "Quem é Ref # ON-B2C1-1225-12?" | Decodifica → Busca user → Retorna dados |
+| "Verifica BC-9DEF-0715-01" | Decodifica → Busca user → Verifica sessões |
 
-1. Executa a query apropriada
-2. Formata os dados para Recharts
-3. Retorna junto com a resposta de texto
+### Resposta do Teletraan9
+
+Quando encontra um usuário:
+
+```
+Encontrei o usuário pelo Ref # QC-A3F8-0106-03:
+
+📧 Email: joao@exemplo.com
+👤 Nome: João Silva
+📍 Região: Quebec
+📊 Plano: Pro
+📅 Cadastro: 15/10/2024
+🕐 Último acesso: 06/01/2025
+
+No dia 06/01/2025, ele registrou 3 sessões (✅ bate com o Ref #).
+```
+
+Quando não encontra:
+
+```
+Não encontrei nenhum usuário com ID terminando em "a3f8".
+
+Possíveis causas:
+- O usuário foi deletado
+- O Ref # está incorreto
+- Erro de digitação no código
+```
+
+---
+
+## 7. Implementação Técnica
+
+### Geração do Ref # (App Mobile)
 
 ```typescript
-if (intent.topic === 'sessions' && intent.wants === 'chart') {
-  const data = await getSessionsTrend(14);
-  visualization = {
-    type: 'chart',
-    chartType: 'line',
-    title: 'Sessions per Day',
-    data
+// src/lib/reports.ts
+
+interface RefCodeInput {
+  userId: string;
+  timezone: string;
+  sessionCount: number;
+  exportDate?: Date;
+}
+
+export function generateRefCode(input: RefCodeInput): string {
+  const { userId, timezone, sessionCount, exportDate = new Date() } = input;
+  
+  // 1. Region code from timezone
+  const regionCode = getRegionFromTimezone(timezone);
+  
+  // 2. Last 4 chars of user ID (uppercase hex)
+  const userSuffix = userId.slice(-4).toUpperCase();
+  
+  // 3. Export date as MMDD
+  const month = String(exportDate.getMonth() + 1).padStart(2, '0');
+  const day = String(exportDate.getDate()).padStart(2, '0');
+  const dateCode = `${month}${day}`;
+  
+  // 4. Session count (padded to 2 digits)
+  const sessionsCode = String(Math.min(sessionCount, 99)).padStart(2, '0');
+  
+  return `${regionCode}-${userSuffix}-${dateCode}-${sessionsCode}`;
+}
+
+// Helper para timezone → region
+function getRegionFromTimezone(timezone: string): string {
+  const tzLower = timezone.toLowerCase();
+  
+  // Canada
+  if (tzLower.includes('toronto') || tzLower.includes('eastern')) return 'ON';
+  if (tzLower.includes('montreal') || tzLower.includes('quebec')) return 'QC';
+  if (tzLower.includes('vancouver') || tzLower.includes('pacific')) return 'BC';
+  if (tzLower.includes('edmonton') || tzLower.includes('mountain')) return 'AB';
+  if (tzLower.includes('winnipeg') || tzLower.includes('central')) return 'MB';
+  if (tzLower.includes('regina') || tzLower.includes('saskatchewan')) return 'SK';
+  if (tzLower.includes('halifax') || tzLower.includes('atlantic')) return 'NS';
+  if (tzLower.includes('st_johns') || tzLower.includes('newfoundland')) return 'NL';
+  
+  // US
+  if (tzLower.includes('new_york')) return 'NE';
+  if (tzLower.includes('chicago')) return 'MW';
+  if (tzLower.includes('denver')) return 'SW';
+  if (tzLower.includes('los_angeles')) return 'WE';
+  if (tzLower.includes('anchorage')) return 'AK';
+  if (tzLower.includes('honolulu')) return 'HI';
+  
+  return 'NA'; // Fallback
+}
+```
+
+### Decodificação (Dashboard/AI)
+
+```typescript
+// lib/refCode.ts
+
+interface DecodedRef {
+  isValid: boolean;
+  regionCode: string | null;
+  regionName: string | null;
+  userSuffix: string | null;
+  exportMonth: number | null;
+  exportDay: number | null;
+  sessionCount: number | null;
+  error?: string;
+}
+
+export function decodeRefCode(refCode: string): DecodedRef {
+  // Clean input (remove "Ref #" prefix if present)
+  const clean = refCode.replace(/^Ref\s*#?\s*/i, '').trim().toUpperCase();
+  
+  // Validate format: XX-YYYY-MMDD-NN
+  const pattern = /^([A-Z]{2})-([A-F0-9]{4})-(\d{4})-(\d{2})$/;
+  const match = clean.match(pattern);
+  
+  if (!match) {
+    return {
+      isValid: false,
+      regionCode: null,
+      regionName: null,
+      userSuffix: null,
+      exportMonth: null,
+      exportDay: null,
+      sessionCount: null,
+      error: 'Invalid format. Expected: XX-YYYY-MMDD-NN',
+    };
+  }
+  
+  const [, regionCode, userSuffix, dateStr, sessionsStr] = match;
+  const exportMonth = parseInt(dateStr.slice(0, 2), 10);
+  const exportDay = parseInt(dateStr.slice(2, 4), 10);
+  const sessionCount = parseInt(sessionsStr, 10);
+  
+  // Validate month
+  if (exportMonth < 1 || exportMonth > 12) {
+    return { ...baseResult, error: `Invalid month: ${exportMonth}` };
+  }
+  
+  // Validate day
+  if (exportDay < 1 || exportDay > 31) {
+    return { ...baseResult, error: `Invalid day: ${exportDay}` };
+  }
+  
+  return {
+    isValid: true,
+    regionCode,
+    regionName: REGION_NAMES[regionCode] || 'Unknown',
+    userSuffix: userSuffix.toLowerCase(),
+    exportMonth,
+    exportDay,
+    sessionCount,
   };
 }
 ```
 
-### System Prompt
-
-O Teletraan9 recebe um prompt de sistema que inclui:
-
-1. **Persona** - Como deve se comportar
-2. **Schema** - Estrutura do banco de dados
-3. **Métricas atuais** - Dados em tempo real
-4. **Contexto de visualização** - Se gerou gráfico
+### Uso no PDF Export
 
 ```typescript
-const systemPrompt = `
-# Who you are
-You are Teletraan9, an advanced AI data analyst...
+// Quando gera o PDF
+const refCode = generateRefCode({
+  userId: user.id,
+  timezone: user.timezone || 'America/Toronto',
+  sessionCount: records.length,
+});
 
-# Database Schema
-- profiles: id, email, name, plan_type...
-- records: entry_at, exit_at, type...
-
-# Current Metrics
-- Users: 45
-- Sessions: 1,234
-- Automation Rate: 72%
-
-# Visualization Generated
-A line chart was created showing sessions per day.
-Comment briefly on the trends.
-`;
+// Adiciona ao PDF
+doc.setFontSize(8);
+doc.setTextColor(128, 128, 128);
+doc.text(`Ref # ${refCode}`, pageWidth - 20, pageHeight - 10, { align: 'right' });
 ```
 
 ---
 
-## 7. Tecnologias Utilizadas
+## Considerações de Segurança
 
-### Frontend (Dashboard)
+### O que é exposto
 
-| Tecnologia | Versão | Uso |
-|------------|--------|-----|
-| Next.js | 14 | Framework React com App Router |
-| React | 18 | UI Library |
-| TypeScript | 5 | Type safety |
-| Tailwind CSS | 3 | Styling |
-| shadcn/ui | latest | Component library |
-| Recharts | 2 | Gráficos |
-| Lucide | latest | Ícones |
+- **Região** - Informação geográfica geral (não endereço)
+- **User Suffix** - Apenas 4 caracteres do UUID (impossível reconstruir)
+- **Data** - Apenas mês/dia (não ano)
+- **Contagem** - Número de sessões
 
-### Backend
+### O que NÃO é exposto
 
-| Tecnologia | Uso |
-|------------|-----|
-| Supabase | Banco de dados PostgreSQL + Auth |
-| OpenAI GPT-4o | Teletraan9 AI |
-| Vercel | Hosting |
+- Email do usuário
+- Nome completo
+- UUID completo
+- Dados de localização GPS
+- Informações financeiras
 
-### Mobile (App de origem dos dados)
+### Colisões
 
-| Tecnologia | Uso |
-|------------|-----|
-| React Native | Framework mobile |
-| Expo | Toolchain |
-| expo-sqlite | Banco local |
-| expo-location | Geofencing |
+A probabilidade de colisão (dois usuários com mesmo suffix) é baixa mas possível:
+- 4 caracteres hex = 65,536 combinações
+- Com <10,000 usuários, colisão é rara
+- Em caso de colisão, use email ou data para desambiguar
 
 ---
 
-## 8. Estrutura de Arquivos
+## Troubleshooting
 
-```
-onsite-analytics/
-├── app/
-│   ├── api/
-│   │   └── ai/
-│   │       └── chat/
-│   │           └── route.ts          # Teletraan9 API endpoint
-│   ├── auth/
-│   │   ├── login/
-│   │   │   └── page.tsx              # Login page
-│   │   └── pending/
-│   │       └── page.tsx              # Waiting approval
-│   └── dashboard/
-│       ├── overview/
-│       │   └── page.tsx              # Main dashboard
-│       ├── identity/
-│       │   └── page.tsx              # Users/Cohorts
-│       ├── business/
-│       │   └── page.tsx              # Sessions/Hours
-│       ├── product/
-│       │   └── page.tsx              # UX/Features
-│       ├── debug/
-│       │   └── page.tsx              # Errors/Health
-│       └── assistant/
-│           └── page.tsx              # Teletraan9 chat
-├── components/
-│   ├── layout/
-│   │   ├── header.tsx                # Page header
-│   │   └── sidebar.tsx               # Navigation
-│   └── ui/                           # shadcn components
-├── lib/
-│   └── supabase/
-│       ├── client.ts                 # Browser client
-│       ├── server.ts                 # Server client + Admin
-│       ├── middleware.ts             # Auth middleware
-│       └── queries.ts                # Database queries
-├── types/
-│   └── database.ts                   # TypeScript types
-└── .env.local                        # Environment variables
-```
+### "Usuário não encontrado"
+
+1. Verifique se o Ref # foi digitado corretamente
+2. Confira se o usuário não foi deletado
+3. Tente buscar pelo suffix diretamente no Supabase
+
+### "Contagem de sessões não bate"
+
+1. O usuário pode ter adicionado/removido sessões após exportar
+2. Verifique se a data está correta (assumindo ano atual)
+3. Confira timezone do usuário vs. timezone do servidor
+
+### "Região desconhecida"
+
+1. O usuário pode ter timezone não mapeado
+2. Fallback para 'NA' é aplicado
+3. Adicione novos mapeamentos conforme necessário
 
 ---
 
-## Conclusão
-
-O OnSite Analytics transforma dados brutos de ponto eletrônico em **insights acionáveis** através de:
-
-1. **Arquitetura em 5 Esferas** - Organização conceitual dos dados
-2. **Agregação Inteligente** - Dados diários em vez de eventos granulares
-3. **Visualizações Focadas** - Cada página responde perguntas específicas
-4. **IA Conversacional** - Teletraan9 para análise natural
-5. **Stack Moderna** - Next.js + Supabase + Recharts
-
-O sistema foi projetado para escalar com a base de usuários enquanto mantém performance e custos controlados.
-
----
-
-*Documentação gerada em Janeiro 2025*  
-*OnSite Club - "Wear what you do!"*
+*Documentação do Sistema Ref # - OnSite Club*  
+*Janeiro 2025*

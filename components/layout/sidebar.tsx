@@ -10,6 +10,7 @@ import {
   Lightbulb,
   Bug,
   Bot,
+  Wrench,
   LogOut,
 } from 'lucide-react';
 
@@ -55,6 +56,12 @@ const tools = [
     href: '/dashboard/assistant',
     icon: Bot,
     badge: 'AI',
+  },
+  {
+    name: 'Support',
+    href: '/dashboard/support',
+    icon: Wrench,
+    description: 'Ref # decoder',
   },
 ];
 
@@ -125,8 +132,13 @@ export function Sidebar() {
                 )}
               >
                 <item.icon className="h-4 w-4" />
-                <span className="flex-1">{item.name}</span>
-                {item.badge && (
+                <div className="flex-1">
+                  <span>{item.name}</span>
+                  {'description' in item && item.description && (
+                    <p className="text-xs text-muted-foreground">{item.description}</p>
+                  )}
+                </div>
+                {'badge' in item && item.badge && (
                   <span className="text-[10px] font-medium bg-blue-600 text-white px-1.5 py-0.5 rounded">
                     {item.badge}
                   </span>
