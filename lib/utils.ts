@@ -9,9 +9,19 @@ export function cn(...inputs: ClassValue[]) {
 // DATE FORMATTING
 // ============================================
 
-export function formatDate(date: string | Date | null | undefined): string {
+export function formatDate(date: string | Date | null | undefined, format?: string): string {
   if (!date) return '-';
   const d = new Date(date);
+  
+  if (format === 'dd/MM HH:mm') {
+    return d.toLocaleString('en-US', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  
   return d.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
