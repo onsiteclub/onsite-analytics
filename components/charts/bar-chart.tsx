@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface BarChartProps {
   title?: string;
-  data: Record<string, any>[];
+  data: Record<string, unknown>[];
   xKey: string;
   bars: {
     key: string;
@@ -23,6 +23,52 @@ interface BarChartProps {
   }[];
   height?: number;
   stacked?: boolean;
+}
+
+interface SimpleBarChartProps {
+  data: { name: string; value: number }[];
+  dataKey: string;
+  xAxisKey: string;
+  color?: string;
+  height?: number;
+}
+
+export function SimpleBarChart({
+  data,
+  dataKey,
+  xAxisKey,
+  color = '#f97316',
+  height = 256,
+}: SimpleBarChartProps) {
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <RechartsBarChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+        <XAxis
+          dataKey={xAxisKey}
+          tick={{ fill: '#a1a1aa', fontSize: 12 }}
+          axisLine={{ stroke: '#3f3f46' }}
+        />
+        <YAxis
+          tick={{ fill: '#a1a1aa', fontSize: 12 }}
+          axisLine={{ stroke: '#3f3f46' }}
+        />
+        <Tooltip
+          contentStyle={{
+            backgroundColor: '#18181b',
+            border: '1px solid #3f3f46',
+            borderRadius: '8px',
+            color: '#e4e4e7',
+          }}
+        />
+        <Bar
+          dataKey={dataKey}
+          fill={color}
+          radius={[4, 4, 0, 0]}
+        />
+      </RechartsBarChart>
+    </ResponsiveContainer>
+  );
 }
 
 export function BarChart({ title, data, xKey, bars, height = 300, stacked }: BarChartProps) {

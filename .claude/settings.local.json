@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(if not exist \"c:\\\\Dev\\\\Onsite-club\\\\onsite-analytics\\\\lib\\\\export\" mkdir \"c:\\\\Dev\\\\Onsite-club\\\\onsite-analytics\\\\lib\\\\export\")",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run build:*)"
+    ]
+  }
+}
