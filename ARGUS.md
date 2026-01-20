@@ -1190,5 +1190,641 @@ const anomaly = await argus.detect("Padrões anormais nas últimas 24h");
 
 ---
 
+## IMPLEMENTAÇÃO NEXT.JS
+
+### Estrutura de Arquivos
+
+```
+onsite-analytics/
+├── app/
+│   ├── chat/
+│   │   ├── layout.tsx              # Layout com ChatSidebar
+│   │   ├── page.tsx                # Nova conversa
+│   │   └── [id]/page.tsx           # Conversa existente
+│   └── api/
+│       └── ai/
+│           └── chat/route.ts       # API endpoint Teletraan9
+├── components/
+│   └── chat/
+│       ├── index.ts                # Exports
+│       ├── chat-sidebar.tsx        # Sidebar de navegação
+│       ├── chat-input.tsx          # Input com comandos
+│       ├── message-list.tsx        # Lista de mensagens
+│       └── response-card.tsx       # Cards de visualização
+├── lib/
+│   ├── supabase/
+│   │   ├── schema.ts               # Types das 38 tabelas
+│   │   ├── conversations.ts        # CRUD client-side
+│   │   └── conversations-server.ts # CRUD server-side
+│   └── export/
+│       └── index.ts                # PDF, Excel, CSV export
+└── ARGUS.md                        # Esta documentação
+```
+
+---
+
+### TIPOS TYPESCRIPT (lib/supabase/schema.ts)
+
+#### Mensagens e Visualizações
+
+```typescript
+// Mensagem do chat
+interface ArgusMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  visualization?: ArgusVisualization | null;
+  sql?: string | null;
+}
+
+// Tipos de visualização suportados
+interface ArgusVisualization {
+  type: 'chart' | 'table' | 'metric' | 'alert' | 'user_card';
+  chartType?: 'line' | 'bar' | 'pie';
+  title?: string;
+  data?: unknown[];
+  columns?: string[];
+  value?: string | number;
+  items?: string[];
+  downloadable?: boolean;
+}
+
+// Conversa persistida
+interface ArgusConversation {
+  id: string;
+  user_id: string;
+  title: string | null;
+  messages: ArgusMessage[];
+  starred: boolean;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+```
+
+#### Views Tipadas
+
+```typescript
+interface VChurnRisk {
+  id: string;
+  email: string;
+  full_name: string | null;
+  trade: string | null;
+  province: string | null;
+  days_inactive: number | null;
+  subscription_status: string | null;
+  trial_end: string | null;
+  has_payment_method: boolean | null;
+  churn_risk: 'high' | 'medium' | 'low';
+  trial_expiring_soon: boolean;
+}
+
+interface VUserHealth {
+  id: string;
+  email: string;
+  full_name: string | null;
+  trade: string | null;
+  calculations_30d: number;
+  voice_uses_30d: number;
+  timekeeper_entries_30d: number;
+  health_score: number;
+}
+
+interface VRevenueByProvince {
+  province: string | null;
+  province_name: string | null;
+  paying_users: number;
+  total_revenue_cad: number;
+  avg_payment_cad: number;
+}
+
+interface VVoiceAdoptionByTrade {
+  trade: string;
+  trade_name: string | null;
+  total_users: number;
+  voice_users: number;
+  total_voice_logs: number;
+  adoption_rate_pct: number;
+}
+```
+
+#### Mapeamento de Nomes de Tabelas
+
+```typescript
+const TABLE_NAMES = {
+  // Reference
+  ref_trades: 'ref_trades',
+  ref_provinces: 'ref_provinces',
+  ref_units: 'ref_units',
+
+  // Identity
+  core_profiles: 'core_profiles',
+  core_devices: 'core_devices',
+  core_consents: 'core_consents',
+
+  // Timekeeper
+  app_timekeeper_projects: 'app_timekeeper_projects',
+  app_timekeeper_geofences: 'app_timekeeper_geofences',
+  app_timekeeper_entries: 'app_timekeeper_entries',
+
+  // Calculator
+  consents: 'consents',
+  voice_logs: 'voice_logs',
+  calculations: 'calculations',
+
+  // Shop
+  categories: 'categories',
+  app_shop_products: 'app_shop_products',
+  app_shop_product_variants: 'app_shop_product_variants',
+  app_shop_orders: 'app_shop_orders',
+  app_shop_order_items: 'app_shop_order_items',
+  app_shop_carts: 'app_shop_carts',
+
+  // Billing
+  billing_products: 'billing_products',
+  billing_subscriptions: 'billing_subscriptions',
+  payment_history: 'payment_history',
+  checkout_codes: 'checkout_codes',
+
+  // Debug
+  log_errors: 'log_errors',
+  log_events: 'log_events',
+  log_locations: 'log_locations',
+  log_voice: 'log_voice',
+  app_logs: 'app_logs',
+
+  // Analytics
+  agg_user_daily: 'agg_user_daily',
+  agg_platform_daily: 'agg_platform_daily',
+  agg_trade_weekly: 'agg_trade_weekly',
+
+  // Intelligence
+  int_voice_patterns: 'int_voice_patterns',
+  int_behavior_patterns: 'int_behavior_patterns',
+
+  // Admin
+  admin_users: 'admin_users',
+  admin_logs: 'admin_logs',
+
+  // Rewards
+  blades_transactions: 'blades_transactions',
+
+  // ARGUS
+  argus_conversations: 'argus_conversations',
+
+  // Views
+  v_churn_risk: 'v_churn_risk',
+  v_user_health: 'v_user_health',
+  v_revenue_by_province: 'v_revenue_by_province',
+  v_voice_adoption_by_trade: 'v_voice_adoption_by_trade',
+} as const;
+
+// Legacy aliases
+type Profile = CoreProfile;
+type Location = TimekeeperGeofence;
+type TimeEntry = TimekeeperEntry;
+type ErrorLog = LogError;
+type LocationAudit = LogLocation;
+type AnalyticsDaily = AggUserDaily;
+```
+
+---
+
+### FUNÇÕES DE CONVERSAÇÃO (lib/supabase/conversations.ts)
+
+#### Client-Side Functions
+
+```typescript
+// Listar conversas
+async function getConversations(): Promise<ArgusConversation[]>
+
+// Conversas favoritas
+async function getStarredConversations(): Promise<ArgusConversation[]>
+
+// Buscar conversa por ID
+async function getConversation(id: string): Promise<ArgusConversation | null>
+
+// Criar nova conversa
+async function createConversation(
+  userId: string,
+  initialMessage?: string
+): Promise<ArgusConversation | null>
+
+// Adicionar mensagem
+async function addMessage(
+  conversationId: string,
+  message: ArgusMessage
+): Promise<boolean>
+
+// Atualizar título
+async function updateTitle(
+  conversationId: string,
+  title: string
+): Promise<boolean>
+
+// Favoritar/desfavoritar
+async function toggleStar(
+  conversationId: string,
+  starred: boolean
+): Promise<boolean>
+
+// Arquivar conversa
+async function archiveConversation(
+  conversationId: string
+): Promise<boolean>
+
+// Deletar conversa
+async function deleteConversation(
+  conversationId: string
+): Promise<boolean>
+
+// Buscar por conteúdo
+async function searchConversations(
+  query: string
+): Promise<ArgusConversation[]>
+
+// Estatísticas
+async function getConversationStats(): Promise<{
+  total: number;
+  starred: number;
+  thisWeek: number;
+}>
+
+// Gerar título automaticamente
+function generateTitle(message: string): string
+```
+
+#### Server-Side Functions (conversations-server.ts)
+
+```typescript
+// Adicionar mensagem com resposta AI (API routes)
+async function addMessageWithResponse(
+  conversationId: string,
+  userMessage: ArgusMessage,
+  aiResponse: ArgusMessage
+): Promise<boolean>
+
+// Criar conversa com primeira troca (API routes)
+async function createConversationWithResponse(
+  userId: string,
+  userMessage: ArgusMessage,
+  aiResponse: ArgusMessage
+): Promise<ArgusConversation | null>
+```
+
+---
+
+### COMPONENTES REACT (components/chat/)
+
+#### ChatSidebar
+
+```typescript
+interface ChatSidebarProps {
+  onNewChat: () => void;
+}
+
+// Funcionalidades:
+// - Logo ARGUS
+// - Botão "New Chat"
+// - Campo de busca
+// - Seção "Starred" (conversas favoritas)
+// - Seção "Recent" (histórico)
+// - Menu de contexto (star, rename, archive, delete)
+// - Links: Settings, Logout
+```
+
+#### ChatInput
+
+```typescript
+interface ChatInputProps {
+  onSend: (message: string) => void;
+  isLoading: boolean;
+  placeholder?: string;
+}
+
+// Quick Commands suportados:
+const QUICK_COMMANDS = [
+  { command: '/report weekly', description: 'Generate weekly report' },
+  { command: '/report monthly', description: 'Generate monthly report' },
+  { command: '/churn', description: 'Show users at risk of churning' },
+  { command: '/revenue', description: 'Show MRR and revenue metrics' },
+  { command: '/errors today', description: 'Show errors from last 24h' },
+  { command: '/sql', description: 'Show last SQL query used' },
+  { command: '/export pdf', description: 'Export conversation as PDF' },
+];
+
+// Funcionalidades:
+// - Textarea auto-resize (max 200px)
+// - Dropdown de comandos (quando digita /)
+// - Navegação por teclado (↑/↓/Tab/Enter/Esc)
+// - Enter para enviar, Shift+Enter para nova linha
+```
+
+#### MessageList
+
+```typescript
+interface MessageListProps {
+  messages: ArgusMessage[];
+  isTyping: boolean;
+  onExportPDF?: (messageIndex: number) => void;
+  onExportExcel?: (messageIndex: number) => void;
+}
+
+// Funcionalidades:
+// - Auto-scroll para última mensagem
+// - Avatar diferenciado (user/assistant)
+// - Indicador de "typing..."
+// - Tela de boas-vindas quando vazio
+// - Sugestões de perguntas iniciais
+```
+
+#### ResponseCard
+
+```typescript
+interface ResponseCardProps {
+  visualization: ArgusVisualization;
+  sql?: string;
+  onExportPDF?: () => void;
+  onExportExcel?: () => void;
+  onRefresh?: () => void;
+}
+
+// Tipos de renderização:
+// - chart: SimpleLineChart ou SimpleBarChart
+// - table: Tabela com colunas dinâmicas (max 10 rows)
+// - metric: Valor grande + indicador de mudança
+// - alert: Lista de alertas amarelos
+// - user_card: Card de perfil de usuário
+
+// Funcionalidades:
+// - Expandir/colapsar
+// - Mostrar/copiar SQL
+// - Botões de export (PDF, Excel)
+// - Refresh de dados
+```
+
+---
+
+### API ENDPOINT (app/api/ai/chat/route.ts)
+
+#### Request/Response
+
+```typescript
+// POST /api/ai/chat
+
+// Request Body
+interface ChatRequest {
+  message: string;
+  history?: ArgusMessage[];
+  conversationId?: string;
+}
+
+// Response
+interface ChatResponse {
+  message: string;
+  visualization?: ArgusVisualization;
+  sql?: string;
+  conversationId: string;
+}
+```
+
+#### Detecção de Intenção
+
+```typescript
+interface DetectedIntent {
+  sphere: 'vision' | 'analysis' | 'precognition';
+  topic: 'users' | 'revenue' | 'errors' | 'voice' | 'timekeeper' | 'shop' | 'general';
+  entities: {
+    timeframe?: string;    // 'today', 'week', 'month', '30d'
+    province?: string;     // 'ON', 'BC', 'QC'
+    trade?: string;        // 'CARP', 'ELEC', 'PLUM'
+    userId?: string;
+    refCode?: string;      // 'REF-XXXXX'
+  };
+}
+```
+
+#### Comandos Processados
+
+```typescript
+// Comandos detectados no message:
+'/churn'           → getChurnRisk()
+'/revenue'         → getRevenueByProvince()
+'/errors'          → getRecentErrors() ou getErrorsByType()
+'/report weekly'   → Relatório semanal agregado
+'/report monthly'  → Relatório mensal agregado
+
+// Ref # Code Detection
+'REF-XXXXX'        → lookupUserByRefCode(code)
+'who is REF-'      → lookupUserByRefCode(code)
+'lookup REF-'      → lookupUserByRefCode(code)
+```
+
+#### Database Helpers
+
+```typescript
+// Métricas gerais
+async function getMetrics(): Promise<{
+  activeUsers: number;
+  totalRevenue: number;
+  errorsToday: number;
+  voiceUsage: number;
+}>
+
+// Lookup de usuário por Ref Code
+async function lookupUserByRefCode(refCode: string): Promise<{
+  found: boolean;
+  user?: CoreProfile;
+  subscription?: BillingSubscription;
+  stats?: UserStats;
+}>
+
+// Dados de churn
+async function getChurnRisk(): Promise<VChurnRisk[]>
+
+// Revenue por província
+async function getRevenueByProvince(): Promise<VRevenueByProvince[]>
+
+// Erros recentes
+async function getRecentErrors(hours: number): Promise<LogError[]>
+
+// Erros agrupados por tipo
+async function getErrorsByType(): Promise<ErrorTypeCount[]>
+
+// Tendência de sessões
+async function getSessionsTrend(days: number): Promise<SessionTrend[]>
+
+// Análise de cohort
+async function getCohortAnalysis(): Promise<CohortData[]>
+
+// Adoção de voz
+async function getVoiceAdoption(): Promise<VVoiceAdoptionByTrade[]>
+```
+
+---
+
+### EXPORT FUNCTIONS (lib/export/index.ts)
+
+#### PDF Export
+
+```typescript
+async function exportConversationToPDF(
+  title: string,
+  messages: ArgusMessage[]
+): Promise<void>
+
+// Funcionalidades:
+// - Header com logo ARGUS
+// - Título e data do relatório
+// - Renderiza cada tipo de visualização:
+//   - metric: Valor grande com indicador
+//   - table: Tabela com max 15 rows
+//   - chart: Informações do gráfico
+//   - alert: Lista de alertas
+//   - user_card: Card de perfil
+// - Bloco SQL quando presente
+// - Footer com paginação
+// - Cores dark mode (zinc palette)
+```
+
+#### Excel Export
+
+```typescript
+async function exportTableToExcel(
+  title: string,
+  data: Record<string, unknown>[]
+): Promise<void>
+
+// Funcionalidades:
+// - Sheet "Data" com dados
+// - Sheet "Info" com metadata
+// - Colunas auto-dimensionadas
+// - Headers em destaque
+```
+
+#### CSV Export
+
+```typescript
+async function exportToCSV(
+  title: string,
+  data: Record<string, unknown>[]
+): Promise<void>
+
+// Funcionalidades:
+// - Escape de aspas e vírgulas
+// - Download direto no browser
+```
+
+---
+
+### FLUXO DE DADOS
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           USER INTERACTION                               │
+│                                                                          │
+│  [ChatInput] ──message──→ [ConversationPage] ──POST──→ [/api/ai/chat]   │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           API PROCESSING                                 │
+│                                                                          │
+│  1. Parse message & detect intent                                        │
+│  2. Check for commands (/churn, /revenue, /errors)                      │
+│  3. Check for Ref # codes (REF-XXXXX)                                   │
+│  4. Build context from database helpers                                  │
+│  5. Call OpenAI GPT-4o with Teletraan9 system prompt                    │
+│  6. Parse response for visualization data                                │
+│  7. Return { message, visualization, sql }                               │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           UI RENDERING                                   │
+│                                                                          │
+│  [MessageList] renders:                                                  │
+│    ├── User message (right-aligned, blue bg)                            │
+│    └── Assistant message (left-aligned)                                 │
+│         └── [ResponseCard] if visualization present                     │
+│              ├── Chart (line/bar via Recharts)                          │
+│              ├── Table (dynamic columns)                                │
+│              ├── Metric (big number + change)                           │
+│              ├── Alert (yellow warning list)                            │
+│              └── UserCard (profile display)                             │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           PERSISTENCE                                    │
+│                                                                          │
+│  [conversations.ts] → Supabase (argus_conversations table)              │
+│                                                                          │
+│  Messages stored as JSONB array with structure:                          │
+│  [{                                                                      │
+│    role: 'user' | 'assistant',                                          │
+│    content: string,                                                      │
+│    timestamp: ISO string,                                                │
+│    visualization?: ArgusVisualization,                                   │
+│    sql?: string                                                          │
+│  }]                                                                      │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### DEPENDÊNCIAS
+
+```json
+{
+  "dependencies": {
+    "jspdf": "^4.0.0",           // PDF generation
+    "xlsx": "^0.18.5",            // Excel export
+    "recharts": "^2.12.2",        // Charts
+    "openai": "^6.15.0",          // GPT-4o API
+    "@supabase/supabase-js": "^2.49.2",
+    "lucide-react": "^0.344.0"    // Icons
+  }
+}
+```
+
+---
+
+### ENVIRONMENT VARIABLES
+
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+
+# OpenAI
+OPENAI_API_KEY=sk-...
+```
+
+---
+
+### SEGURANÇA
+
+1. **RLS (Row Level Security)**
+   - Todas queries filtradas por `user_id`
+   - Políticas em `argus_conversations`
+
+2. **Input Validation**
+   - Mensagens sanitizadas antes de enviar para OpenAI
+   - Ref codes validados com regex
+
+3. **Rate Limiting**
+   - Implementado a nível de API
+
+4. **Audit Logs**
+   - Queries logadas em `admin_logs`
+
+---
+
 *Última atualização: 2026-01-19*
 *Mantido por: Blueprint (Blue)*
