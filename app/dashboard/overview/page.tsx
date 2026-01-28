@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/layout/header';
+import { MetricCard } from '@/components/dashboard/metric-card';
+import { SectionHeader } from '@/components/dashboard/section-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
+import { GARGALO_COLORS } from '@/components/charts/chart-colors';
 import {
   Users,
   Briefcase,
@@ -34,19 +37,16 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from 'recharts';
 
-const COLORS = {
-  primary: '#3b82f6',
-  success: '#10b981',
-  warning: '#f59e0b',
-  danger: '#ef4444',
-  info: '#0ea5e9',
-  purple: '#8b5cf6',
-};
-
-const PIE_COLORS = [COLORS.primary, COLORS.success, COLORS.info, COLORS.purple, COLORS.warning];
+// Canonical table names
+const T = {
+  PROFILES: 'core_profiles',
+  ENTRIES: 'app_timekeeper_entries',
+  GEOFENCES: 'app_timekeeper_geofences',
+  ANALYTICS: 'agg_user_daily',
+  ERRORS: 'log_errors',
+} as const;
 
 interface Metrics {
   identity: {
@@ -89,7 +89,7 @@ export default function OverviewPage() {
 
       // ========== IDENTITY ==========
       const { count: totalUsers } = await supabase
-        .from('profiles')
+        .from(T.PROFILES)
         .select('*', { count: 'exact', head: true });
 
       const today = new Date().toISOString().split('T')[0];
@@ -97,25 +97,25 @@ export default function OverviewPage() {
       const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 
       const { count: activeToday } = await supabase
-        .from('profiles')
+        .from(T.PROFILES)
         .select('*', { count: 'exact', head: true })
         .gte('last_active_at', today);
 
       const { count: activeWeek } = await supabase
-        .from('profiles')
+        .from(T.PROFILES)
         .select('*', { count: 'exact', head: true })
         .gte('last_active_at', weekAgo);
 
       const { count: newThisMonth } = await supabase
-        .from('profiles')
+        .from(T.PROFILES)
         .select('*', { count: 'exact', head: true })
         .gte('created_at', monthStart);
 
       // By plan
       const { data: planData } = await supabase
-        .from('profiles')
+        .from(T.PROFILES)
         .select('plan_type');
-      
+
       const planCounts: { [key: string]: number } = {};
       planData?.forEach(p => {
         const plan = p.plan_type || 'free';
@@ -124,9 +124,9 @@ export default function OverviewPage() {
 
       // By platform
       const { data: platformData } = await supabase
-        .from('profiles')
+        .from(T.PROFILES)
         .select('device_platform');
-      
+
       const platformCounts: { [key: string]: number } = {};
       platformData?.forEach(p => {
         const platform = p.device_platform || 'Unknown';
@@ -135,16 +135,16 @@ export default function OverviewPage() {
 
       // ========== BUSINESS ==========
       const { count: totalSessions } = await supabase
-        .from('records')
+        .from(T.ENTRIES)
         .select('*', { count: 'exact', head: true });
 
       const { count: totalLocations } = await supabase
-        .from('locations')
+        .from(T.GEOFENCES)
         .select('*', { count: 'exact', head: true })
         .eq('status', 'active');
 
       const { data: sessionsData } = await supabase
-        .from('records')
+        .from(T.ENTRIES)
         .select('entry_at, exit_at, type')
         .not('exit_at', 'is', null)
         .limit(1000);
@@ -163,7 +163,7 @@ export default function OverviewPage() {
 
       // Sessions trend (last 14 days)
       const { data: trendData } = await supabase
-        .from('records')
+        .from(T.ENTRIES)
         .select('created_at')
         .gte('created_at', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString());
 
@@ -175,7 +175,7 @@ export default function OverviewPage() {
 
       // ========== PRODUCT ==========
       const { data: analyticsData } = await supabase
-        .from('analytics_daily')
+        .from(T.ANALYTICS)
         .select('app_opens, app_foreground_seconds, features_used')
         .gte('date', weekAgo.split('T')[0])
         .limit(100);
@@ -200,12 +200,12 @@ export default function OverviewPage() {
 
       // ========== DEBUG ==========
       const { count: totalErrors } = await supabase
-        .from('error_log')
+        .from(T.ERRORS)
         .select('*', { count: 'exact', head: true })
         .gte('occurred_at', weekAgo);
 
       const { data: syncData } = await supabase
-        .from('analytics_daily')
+        .from(T.ANALYTICS)
         .select('sync_attempts, sync_failures, geofence_accuracy_sum, geofence_accuracy_count')
         .gte('date', weekAgo.split('T')[0]);
 
@@ -226,7 +226,7 @@ export default function OverviewPage() {
 
       // Errors by type
       const { data: errorsData } = await supabase
-        .from('error_log')
+        .from(T.ERRORS)
         .select('error_type')
         .gte('occurred_at', weekAgo);
 
@@ -238,7 +238,7 @@ export default function OverviewPage() {
 
       // Errors trend
       const { data: errorTrendData } = await supabase
-        .from('error_log')
+        .from(T.ERRORS)
         .select('occurred_at')
         .gte('occurred_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
 
@@ -303,34 +303,30 @@ export default function OverviewPage() {
 
   return (
     <div className="flex flex-col h-full overflow-auto">
-      <Header 
-        title="Dashboard" 
+      <Header
+        title="Dashboard"
         description="5 Data Spheres Overview"
       />
 
       <div className="flex-1 p-6 space-y-8">
-        
+
         {/* 1. IDENTITY */}
         <section>
-          <div className="flex items-center gap-2 mb-4">
-            <Users className="h-5 w-5 text-blue-500" />
-            <h2 className="text-lg font-semibold">Identity</h2>
-            <Badge variant="outline">Who are the users</Badge>
-          </div>
-          
+          <SectionHeader title="Identity" subtitle="Who are the users" icon={Users} iconColor="text-blue-500" />
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <MetricCard title="Total Users" value={metrics?.identity.totalUsers || 0} icon={Users} color="blue" />
-            <MetricCard title="Active Today" value={metrics?.identity.activeToday || 0} icon={Activity} color="green" subtitle={`${metrics?.identity.activeWeek || 0} this week`} />
-            <MetricCard title="New This Month" value={metrics?.identity.newThisMonth || 0} icon={TrendingUp} color="purple" />
+            <MetricCard title="Total Users" value={metrics?.identity.totalUsers || 0} icon={Users} color="blue" delay={0} />
+            <MetricCard title="Active Today" value={metrics?.identity.activeToday || 0} icon={Activity} color="green" subtitle={`${metrics?.identity.activeWeek || 0} this week`} delay={1} />
+            <MetricCard title="New This Month" value={metrics?.identity.newThisMonth || 0} icon={TrendingUp} color="purple" delay={2} />
             <Card>
               <CardContent className="p-4">
-                <p className="text-sm text-muted-foreground mb-2">By Platform</p>
+                <p className="text-xs text-muted-foreground font-medium mb-2">By Platform</p>
                 <div className="h-24">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={metrics?.identity.byPlatform || []} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={20} outerRadius={35}>
                         {metrics?.identity.byPlatform.map((_, i) => (
-                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                          <Cell key={i} fill={GARGALO_COLORS[i % GARGALO_COLORS.length]} />
                         ))}
                       </Pie>
                       <Tooltip />
@@ -344,17 +340,13 @@ export default function OverviewPage() {
 
         {/* 2. BUSINESS */}
         <section>
-          <div className="flex items-center gap-2 mb-4">
-            <Briefcase className="h-5 w-5 text-orange-500" />
-            <h2 className="text-lg font-semibold">Business</h2>
-            <Badge variant="outline">Value generated</Badge>
-          </div>
-          
+          <SectionHeader title="Business" subtitle="Value generated" icon={Briefcase} iconColor="text-orange-500" />
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-            <MetricCard title="Total Sessions" value={metrics?.business.totalSessions || 0} icon={Clock} color="orange" />
-            <MetricCard title="Hours Tracked" value={metrics?.business.totalHours || 0} icon={Clock} color="orange" suffix="h" />
-            <MetricCard title="Active Locations" value={metrics?.business.totalLocations || 0} icon={MapPin} color="orange" />
-            <MetricCard title="Automation Rate" value={metrics?.business.automationRate || 0} icon={Zap} color={(metrics?.business.automationRate ?? 0) >= 60 ? 'green' : 'orange'} suffix="%" subtitle={`Avg: ${metrics?.business.avgDuration || 0}min/session`} />
+            <MetricCard title="Total Sessions" value={metrics?.business.totalSessions || 0} icon={Clock} color="orange" delay={0} />
+            <MetricCard title="Hours Tracked" value={metrics?.business.totalHours || 0} icon={Clock} color="orange" suffix="h" delay={1} />
+            <MetricCard title="Active Locations" value={metrics?.business.totalLocations || 0} icon={MapPin} color="orange" delay={2} />
+            <MetricCard title="Automation Rate" value={metrics?.business.automationRate || 0} icon={Zap} color={(metrics?.business.automationRate ?? 0) >= 60 ? 'green' : 'orange'} suffix="%" subtitle={`Avg: ${metrics?.business.avgDuration || 0}min/session`} delay={3} />
           </div>
 
           <Card>
@@ -369,7 +361,7 @@ export default function OverviewPage() {
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip />
-                    <Line type="monotone" dataKey="value" stroke={COLORS.primary} strokeWidth={2} dot={{ fill: COLORS.primary }} />
+                    <Line type="monotone" dataKey="value" stroke={GARGALO_COLORS[0]} strokeWidth={2} dot={{ fill: GARGALO_COLORS[0] }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -379,18 +371,14 @@ export default function OverviewPage() {
 
         {/* 3. PRODUCT */}
         <section>
-          <div className="flex items-center gap-2 mb-4">
-            <Lightbulb className="h-5 w-5 text-yellow-500" />
-            <h2 className="text-lg font-semibold">Product</h2>
-            <Badge variant="outline">UX & Engagement</Badge>
-          </div>
-          
+          <SectionHeader title="Product" subtitle="UX & Engagement" icon={Lightbulb} iconColor="text-yellow-500" />
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <MetricCard title="Avg Opens/Day" value={metrics?.product.avgOpens || 0} icon={Smartphone} color="yellow" />
-            <MetricCard title="Avg Time in App" value={metrics?.product.avgTimeInApp || 0} icon={Clock} color="yellow" suffix="min" />
+            <MetricCard title="Avg Opens/Day" value={metrics?.product.avgOpens || 0} icon={Smartphone} color="yellow" delay={0} />
+            <MetricCard title="Avg Time in App" value={metrics?.product.avgTimeInApp || 0} icon={Clock} color="yellow" suffix="min" delay={1} />
             <Card>
               <CardContent className="p-4">
-                <p className="text-sm text-muted-foreground mb-2">Top Features</p>
+                <p className="text-xs text-muted-foreground font-medium mb-2">Top Features</p>
                 <div className="space-y-2">
                   {(metrics?.product.topFeatures || []).length > 0 ? (
                     metrics?.product.topFeatures.map((f, i) => (
@@ -410,19 +398,15 @@ export default function OverviewPage() {
 
         {/* 4. DEBUG */}
         <section>
-          <div className="flex items-center gap-2 mb-4">
-            <Bug className="h-5 w-5 text-red-500" />
-            <h2 className="text-lg font-semibold">Debug</h2>
-            <Badge variant="outline">System health</Badge>
-          </div>
-          
+          <SectionHeader title="Debug" subtitle="System health" icon={Bug} iconColor="text-red-500" />
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-            <MetricCard title="Errors (7 days)" value={metrics?.debug.totalErrors || 0} icon={AlertTriangle} color={(metrics?.debug.totalErrors ?? 0) > 10 ? 'red' : 'green'} />
-            <MetricCard title="Sync Rate" value={metrics?.debug.syncRate || 0} icon={CheckCircle} color={(metrics?.debug.syncRate ?? 100) >= 95 ? 'green' : 'red'} suffix="%" />
-            <MetricCard title="GPS Accuracy" value={metrics?.debug.avgAccuracy || 0} icon={Target} color={(metrics?.debug.avgAccuracy ?? 0) <= 20 ? 'green' : 'orange'} suffix="m" />
+            <MetricCard title="Errors (7 days)" value={metrics?.debug.totalErrors || 0} icon={AlertTriangle} color={(metrics?.debug.totalErrors ?? 0) > 10 ? 'red' : 'green'} delay={0} />
+            <MetricCard title="Sync Rate" value={metrics?.debug.syncRate || 0} icon={CheckCircle} color={(metrics?.debug.syncRate ?? 100) >= 95 ? 'green' : 'red'} suffix="%" delay={1} />
+            <MetricCard title="GPS Accuracy" value={metrics?.debug.avgAccuracy || 0} icon={Target} color={(metrics?.debug.avgAccuracy ?? 0) <= 20 ? 'green' : 'orange'} suffix="m" delay={2} />
             <Card>
               <CardContent className="p-4">
-                <p className="text-sm text-muted-foreground mb-2">Errors by Type</p>
+                <p className="text-xs text-muted-foreground font-medium mb-2">Errors by Type</p>
                 <div className="space-y-1">
                   {(metrics?.debug.errorsByType || []).length > 0 ? (
                     metrics?.debug.errorsByType.map((e, i) => (
@@ -454,7 +438,7 @@ export default function OverviewPage() {
                       <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                       <YAxis tick={{ fontSize: 11 }} />
                       <Tooltip />
-                      <Bar dataKey="value" fill={COLORS.danger} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="value" fill={GARGALO_COLORS[4]} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -464,53 +448,5 @@ export default function OverviewPage() {
         </section>
       </div>
     </div>
-  );
-}
-
-// ========== METRIC CARD COMPONENT ==========
-
-type MetricColor = 'blue' | 'green' | 'orange' | 'red' | 'yellow' | 'purple';
-
-function MetricCard({ 
-  title, 
-  value, 
-  icon: Icon, 
-  color = 'blue',
-  suffix = '',
-  subtitle 
-}: { 
-  title: string;
-  value: number;
-  icon: any;
-  color?: MetricColor;
-  suffix?: string;
-  subtitle?: string;
-}) {
-  const colorClasses: { [key in MetricColor]: string } = {
-    blue: 'text-blue-500 bg-blue-500/10',
-    green: 'text-green-500 bg-green-500/10',
-    orange: 'text-orange-500 bg-orange-500/10',
-    red: 'text-red-500 bg-red-500/10',
-    yellow: 'text-yellow-500 bg-yellow-500/10',
-    purple: 'text-purple-500 bg-purple-500/10',
-  };
-
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-muted-foreground">{title}</p>
-            <p className="text-2xl font-bold">
-              {value.toLocaleString('en-US')}{suffix}
-            </p>
-            {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
-          </div>
-          <div className={`p-2 rounded-lg ${colorClasses[color]}`}>
-            <Icon className="h-5 w-5" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
   );
 }

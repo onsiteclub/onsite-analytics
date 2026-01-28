@@ -11,30 +11,30 @@ import { toCSV, downloadFile } from '@/lib/utils';
 
 const SAMPLE_QUERIES = [
   {
-    name: 'Usuários recentes',
-    sql: `SELECT email, nome, created_at 
-FROM profiles 
-ORDER BY created_at DESC 
+    name: 'Recent Users',
+    sql: `SELECT email, full_name, created_at
+FROM core_profiles
+ORDER BY created_at DESC
 LIMIT 10`,
   },
   {
-    name: 'Eventos de hoje',
-    sql: `SELECT event_type, event_data, created_at 
-FROM app_events 
+    name: "Today's Events",
+    sql: `SELECT event_type, event_data, created_at
+FROM log_events
 WHERE created_at > NOW() - INTERVAL '1 day'
 ORDER BY created_at DESC`,
   },
   {
-    name: 'Sessões abertas',
-    sql: `SELECT local_nome, entrada, user_id 
-FROM registros 
-WHERE saida IS NULL
-ORDER BY entrada DESC`,
+    name: 'Open Sessions',
+    sql: `SELECT location_name, entry_at, user_id
+FROM app_timekeeper_entries
+WHERE exit_at IS NULL
+ORDER BY entry_at DESC`,
   },
   {
-    name: 'Telemetria da semana',
-    sql: `SELECT date, app_opens, sync_attempts, sync_failures 
-FROM timekeeper_telemetry_daily 
+    name: 'Weekly Telemetry',
+    sql: `SELECT date, app_opens, sync_attempts, sync_failures
+FROM agg_user_daily
 WHERE date > CURRENT_DATE - 7
 ORDER BY date DESC`,
   },
@@ -62,7 +62,7 @@ export default function QueriesPage() {
       const data = await res.json();
 
       if (!res.ok || data.error) {
-        setError(data.error || 'Erro desconhecido');
+        setError(data.error || 'Unknown error');
       } else {
         setResults(data.data || []);
       }
@@ -95,9 +95,9 @@ export default function QueriesPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header 
-        title="Queries" 
-        description="Execute consultas SQL personalizadas"
+      <Header
+        title="Queries"
+        description="Execute custom SQL queries"
       />
 
       <div className="flex-1 p-6 space-y-6">
@@ -107,17 +107,17 @@ export default function QueriesPage() {
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">Editor SQL</CardTitle>
+                  <CardTitle className="text-lg">SQL Editor</CardTitle>
                   <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       onClick={() => copy(sql)}
                     >
                       <Copy className="h-4 w-4 mr-1" />
-                      {copied ? 'Copiado!' : 'Copiar'}
+                      {copied ? 'Copied!' : 'Copy'}
                     </Button>
-                    <Button 
+                    <Button
                       size="sm"
                       onClick={executeQuery}
                       disabled={loading || !sql.trim()}
@@ -127,7 +127,7 @@ export default function QueriesPage() {
                       ) : (
                         <Play className="h-4 w-4 mr-1" />
                       )}
-                      Executar
+                      Execute
                     </Button>
                   </div>
                 </div>
@@ -140,7 +140,7 @@ export default function QueriesPage() {
                   placeholder="SELECT * FROM ..."
                 />
                 <p className="text-xs text-muted-foreground mt-2">
-                  ⚠️ Apenas queries SELECT são permitidas
+                  Only SELECT queries are allowed
                 </p>
               </CardContent>
             </Card>
@@ -148,7 +148,7 @@ export default function QueriesPage() {
             {/* Results */}
             {error && (
               <div className="bg-destructive/10 border border-destructive/50 rounded-lg p-4">
-                <p className="text-destructive font-medium">Erro</p>
+                <p className="text-destructive font-medium">Error</p>
                 <p className="text-sm text-destructive/80">{error}</p>
               </div>
             )}
@@ -158,11 +158,11 @@ export default function QueriesPage() {
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-lg">
-                      Resultados ({results.length} rows)
+                      Results ({results.length} rows)
                     </CardTitle>
                     <Button variant="outline" size="sm" onClick={exportResults}>
                       <Download className="h-4 w-4 mr-1" />
-                      Exportar CSV
+                      Export CSV
                     </Button>
                   </div>
                 </CardHeader>
@@ -181,7 +181,7 @@ export default function QueriesPage() {
           <div className="space-y-4">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Exemplos</CardTitle>
+                <CardTitle className="text-lg">Examples</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 {SAMPLE_QUERIES.map((q, i) => (
@@ -198,16 +198,16 @@ export default function QueriesPage() {
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Tabelas</CardTitle>
+                <CardTitle className="text-lg">Tables</CardTitle>
               </CardHeader>
               <CardContent className="space-y-1 text-sm font-mono">
-                <p>profiles</p>
-                <p>app_events</p>
-                <p>locais</p>
-                <p>registros</p>
-                <p>timekeeper_telemetry_daily</p>
-                <p>calculator_history</p>
-                <p>calculator_sessions</p>
+                <p>core_profiles</p>
+                <p>app_timekeeper_entries</p>
+                <p>app_timekeeper_geofences</p>
+                <p>log_events</p>
+                <p>log_errors</p>
+                <p>agg_user_daily</p>
+                <p>app_calculator_calculations</p>
               </CardContent>
             </Card>
           </div>

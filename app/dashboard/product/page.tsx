@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/layout/header';
+import { MetricCard } from '@/components/dashboard/metric-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
+import { ENTRADA_COLORS } from '@/components/charts/chart-colors';
 import {
   Smartphone,
   Clock,
@@ -27,6 +29,10 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
+
+const T = {
+  ANALYTICS: 'agg_user_daily',
+} as const;
 
 const FUNNEL_COLORS = ['#22c55e', '#84cc16', '#eab308', '#3b82f6', '#ef4444'];
 
@@ -50,7 +56,7 @@ export default function ProductPage() {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: analyticsData } = await supabase
-      .from('analytics_daily')
+      .from(T.ANALYTICS)
       .select('app_opens, app_foreground_seconds, notifications_shown, notifications_actioned, features_used')
       .gte('date', weekAgo.split('T')[0]);
 
@@ -65,7 +71,7 @@ export default function ProductPage() {
       totalTime += a.app_foreground_seconds || 0;
       totalNotifShown += a.notifications_shown || 0;
       totalNotifActioned += a.notifications_actioned || 0;
-      
+
       try {
         const features = JSON.parse(a.features_used || '[]');
         features.forEach((f: string) => {
@@ -84,7 +90,7 @@ export default function ProductPage() {
       .slice(0, 10)
       .map(([name, value]) => ({ name, value }));
 
-    // Onboarding funnel - check if onboarding_events table exists
+    // Onboarding funnel
     const funnelSteps = ['signup', 'email_verified', 'first_location', 'first_session', 'first_export'];
     const funnel: { name: string; value: number; fill: string }[] = [];
 
@@ -94,7 +100,7 @@ export default function ProductPage() {
           .from('onboarding_events')
           .select('*', { count: 'exact', head: true })
           .eq('step', funnelSteps[i]);
-        
+
         funnel.push({
           name: funnelSteps[i].replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
           value: count || 0,
@@ -147,9 +153,9 @@ export default function ProductPage() {
 
         {/* KPIs */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard title="Avg Opens/Day" value={metrics?.avgAppOpens || 0} icon={Smartphone} />
-          <MetricCard title="Avg Time in App" value={metrics?.avgTimeInApp || 0} icon={Clock} suffix=" min" />
-          <MetricCard title="Notification Response Rate" value={metrics?.notificationRate || 0} icon={Bell} suffix="%" color={(metrics?.notificationRate ?? 0) >= 30 ? 'green' : 'orange'} />
+          <MetricCard title="Avg Opens/Day" value={metrics?.avgAppOpens || 0} icon={Smartphone} color="cyan" delay={0} />
+          <MetricCard title="Avg Time in App" value={metrics?.avgTimeInApp || 0} icon={Clock} color="cyan" suffix=" min" delay={1} />
+          <MetricCard title="Notification Response Rate" value={metrics?.notificationRate || 0} icon={Bell} suffix="%" color={(metrics?.notificationRate ?? 0) >= 30 ? 'green' : 'orange'} delay={2} />
         </div>
 
         {/* Charts */}
@@ -200,7 +206,7 @@ export default function ProductPage() {
                       <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-45} textAnchor="end" height={80} />
                       <YAxis />
                       <Tooltip />
-                      <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="value" fill={ENTRADA_COLORS[0]} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
@@ -240,36 +246,5 @@ export default function ProductPage() {
         </Card>
       </div>
     </div>
-  );
-}
-
-type MetricColor = 'default' | 'green' | 'orange';
-
-function MetricCard({ title, value, icon: Icon, suffix = '', color = 'default' }: {
-  title: string;
-  value: number;
-  icon: any;
-  suffix?: string;
-  color?: MetricColor;
-}) {
-  const colorClasses: { [key in MetricColor]: string } = {
-    default: 'text-muted-foreground',
-    green: 'text-green-500',
-    orange: 'text-orange-500',
-  };
-  const colorClass = colorClasses[color];
-
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-muted-foreground">{title}</p>
-            <p className="text-2xl font-bold">{value.toLocaleString('en-US')}{suffix}</p>
-          </div>
-          <Icon className={`h-5 w-5 ${colorClass}`} />
-        </div>
-      </CardContent>
-    </Card>
   );
 }

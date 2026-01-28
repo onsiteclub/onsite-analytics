@@ -13,6 +13,18 @@ import {
 } from '@/types/database';
 
 // ============================================
+// TABLE NAMES (canonical — no legacy views)
+// ============================================
+const T = {
+  PROFILES: 'core_profiles',
+  ENTRIES: 'app_timekeeper_entries',
+  GEOFENCES: 'app_timekeeper_geofences',
+  EVENTS: 'log_events',
+  ANALYTICS: 'agg_user_daily',
+  ERRORS: 'log_errors',
+} as const;
+
+// ============================================
 // DASHBOARD STATS
 // ============================================
 
@@ -25,15 +37,15 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     { count: totalLocations },
     { count: totalEvents },
   ] = await Promise.all([
-    supabase.from('profiles').select('*', { count: 'exact', head: true }),
-    supabase.from('records').select('*', { count: 'exact', head: true }),
-    supabase.from('locations').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-    supabase.from('app_events').select('*', { count: 'exact', head: true }),
+    supabase.from(T.PROFILES).select('*', { count: 'exact', head: true }),
+    supabase.from(T.ENTRIES).select('*', { count: 'exact', head: true }),
+    supabase.from(T.GEOFENCES).select('*', { count: 'exact', head: true }).eq('status', 'active'),
+    supabase.from(T.EVENTS).select('*', { count: 'exact', head: true }),
   ]);
 
   // Calculate automation rate
   const { data: sessions } = await supabase
-    .from('records')
+    .from(T.ENTRIES)
     .select('type')
     .limit(1000);
 
@@ -43,7 +55,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
   // Calculate avg session duration
   const { data: completedSessions } = await supabase
-    .from('records')
+    .from(T.ENTRIES)
     .select('entry_at, exit_at')
     .not('exit_at', 'is', null)
     .limit(500);
@@ -54,8 +66,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       totalMinutes += (new Date(s.exit_at).getTime() - new Date(s.entry_at).getTime()) / 60000;
     }
   });
-  const avgSessionMinutes = completedSessions?.length 
-    ? Math.round(totalMinutes / completedSessions.length) 
+  const avgSessionMinutes = completedSessions?.length
+    ? Math.round(totalMinutes / completedSessions.length)
     : 0;
 
   return {
@@ -81,7 +93,7 @@ export async function getUsers(
   const offset = (page - 1) * pageSize;
 
   let query = supabase
-    .from('profiles')
+    .from(T.PROFILES)
     .select('*', { count: 'exact' })
     .order('created_at', { ascending: false })
     .range(offset, offset + pageSize - 1);
@@ -115,7 +127,7 @@ export async function getUserActivity(userId: string): Promise<UserActivitySumma
   const supabase = createClient();
 
   const { data: profile } = await supabase
-    .from('profiles')
+    .from(T.PROFILES)
     .select('*')
     .eq('id', userId)
     .single();
@@ -123,12 +135,12 @@ export async function getUserActivity(userId: string): Promise<UserActivitySumma
   if (!profile) return null;
 
   const { count: sessionCount } = await supabase
-    .from('records')
+    .from(T.ENTRIES)
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId);
 
   const { data: sessions } = await supabase
-    .from('records')
+    .from(T.ENTRIES)
     .select('entry_at, exit_at')
     .eq('user_id', userId)
     .not('exit_at', 'is', null);
@@ -143,7 +155,7 @@ export async function getUserActivity(userId: string): Promise<UserActivitySumma
   return {
     user_id: profile.id,
     email: profile.email,
-    name: profile.name,
+    name: profile.full_name,
     total_sessions: sessionCount || 0,
     total_hours: Math.round(totalMinutes / 60 * 10) / 10,
     last_active: profile.last_active_at,
@@ -151,7 +163,7 @@ export async function getUserActivity(userId: string): Promise<UserActivitySumma
 }
 
 // ============================================
-// SESSIONS / RECORDS
+// SESSIONS / ENTRIES
 // ============================================
 
 export async function getSessions(
@@ -163,7 +175,7 @@ export async function getSessions(
   const offset = (page - 1) * pageSize;
 
   let query = supabase
-    .from('records')
+    .from(T.ENTRIES)
     .select('*', { count: 'exact' })
     .order('created_at', { ascending: false })
     .range(offset, offset + pageSize - 1);
@@ -206,7 +218,7 @@ export async function getEvents(
   const offset = (page - 1) * pageSize;
 
   let query = supabase
-    .from('app_events')
+    .from(T.EVENTS)
     .select('*', { count: 'exact' })
     .order('created_at', { ascending: false })
     .range(offset, offset + pageSize - 1);
@@ -246,7 +258,7 @@ export async function getDailyMetrics(
   const supabase = createClient();
 
   let query = supabase
-    .from('analytics_daily')
+    .from(T.ANALYTICS)
     .select('*')
     .order('date', { ascending: false })
     .limit(filters?.limit || 30);
@@ -283,13 +295,13 @@ export async function getDailyMetrics(
     byDate[date].errors += row.errors_count || 0;
   });
 
-  return Object.values(byDate).sort((a, b) => 
+  return Object.values(byDate).sort((a, b) =>
     new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 }
 
 // ============================================
-// LOCATIONS
+// GEOFENCES
 // ============================================
 
 export async function getLocations(
@@ -301,7 +313,7 @@ export async function getLocations(
   const offset = (page - 1) * pageSize;
 
   let query = supabase
-    .from('locations')
+    .from(T.GEOFENCES)
     .select('*', { count: 'exact' })
     .eq('status', 'active')
     .order('created_at', { ascending: false })
@@ -332,9 +344,9 @@ export async function searchUsers(term: string): Promise<Profile[]> {
   const supabase = createClient();
 
   const { data, error } = await supabase
-    .from('profiles')
+    .from(T.PROFILES)
     .select('*')
-    .or(`email.ilike.%${term}%,name.ilike.%${term}%`)
+    .or(`email.ilike.%${term}%,full_name.ilike.%${term}%`)
     .limit(10);
 
   if (error) throw error;

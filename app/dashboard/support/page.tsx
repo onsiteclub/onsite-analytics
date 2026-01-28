@@ -137,19 +137,19 @@ function generateSearchSQL(decoded: DecodedRef): string {
   const dateStr = `${currentYear}-${String(decoded.exportMonth).padStart(2, '0')}-${String(decoded.exportDay).padStart(2, '0')}`;
   
   return `-- Step 1: Find user by ID suffix
-SELECT id, email, name, created_at 
-FROM profiles 
+SELECT id, email, full_name, created_at
+FROM core_profiles
 WHERE id::text LIKE '%${decoded.userSuffix}';
 
--- Step 2: Verify with records (should have ${decoded.sessionCount} sessions)
-SELECT * FROM records 
+-- Step 2: Verify with entries (should have ${decoded.sessionCount} sessions)
+SELECT * FROM app_timekeeper_entries
 WHERE user_id = '<USER_ID_FROM_STEP_1>'
 AND DATE(entry_at) = '${dateStr}'
 ORDER BY entry_at;
 
 -- Quick count verification
-SELECT COUNT(*) as session_count 
-FROM records 
+SELECT COUNT(*) as session_count
+FROM app_timekeeper_entries
 WHERE user_id = '<USER_ID_FROM_STEP_1>'
 AND DATE(entry_at) = '${dateStr}';`;
 }

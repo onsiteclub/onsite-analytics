@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/layout/header';
+import { MetricCard } from '@/components/dashboard/metric-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
+import { ENTRADA_COLORS } from '@/components/charts/chart-colors';
 import {
   Users,
   UserPlus,
@@ -29,7 +31,9 @@ import {
   Legend,
 } from 'recharts';
 
-const COLORS = ['#3b82f6', '#10b981', '#0ea5e9', '#8b5cf6', '#ec4899'];
+const T = {
+  PROFILES: 'core_profiles',
+} as const;
 
 interface IdentityMetrics {
   total: number;
@@ -59,34 +63,34 @@ export default function IdentityPage() {
     const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-    const { count: total } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
-    const { count: activeToday } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).gte('last_active_at', today);
-    const { count: activeWeek } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).gte('last_active_at', weekAgo);
-    const { count: activeMonth } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).gte('last_active_at', monthAgo);
-    const { count: newThisWeek } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', weekAgo);
-    const { count: newThisMonth } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', monthStart);
+    const { count: total } = await supabase.from(T.PROFILES).select('*', { count: 'exact', head: true });
+    const { count: activeToday } = await supabase.from(T.PROFILES).select('*', { count: 'exact', head: true }).gte('last_active_at', today);
+    const { count: activeWeek } = await supabase.from(T.PROFILES).select('*', { count: 'exact', head: true }).gte('last_active_at', weekAgo);
+    const { count: activeMonth } = await supabase.from(T.PROFILES).select('*', { count: 'exact', head: true }).gte('last_active_at', monthAgo);
+    const { count: newThisWeek } = await supabase.from(T.PROFILES).select('*', { count: 'exact', head: true }).gte('created_at', weekAgo);
+    const { count: newThisMonth } = await supabase.from(T.PROFILES).select('*', { count: 'exact', head: true }).gte('created_at', monthStart);
 
     const { count: churnedThisMonth } = await supabase
-      .from('profiles')
+      .from(T.PROFILES)
       .select('*', { count: 'exact', head: true })
       .lt('last_active_at', monthAgo)
       .gte('last_active_at', new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString());
 
-    const { data: planData } = await supabase.from('profiles').select('plan_type');
+    const { data: planData } = await supabase.from(T.PROFILES).select('plan_type');
     const planCounts: { [key: string]: number } = { free: 0, pro: 0, enterprise: 0 };
     planData?.forEach(p => {
       const plan = p.plan_type || 'free';
       planCounts[plan] = (planCounts[plan] || 0) + 1;
     });
 
-    const { data: platformData } = await supabase.from('profiles').select('device_platform');
+    const { data: platformData } = await supabase.from(T.PROFILES).select('device_platform');
     const platformCounts: { [key: string]: number } = {};
     platformData?.forEach(p => {
       const platform = p.device_platform || 'Unknown';
       platformCounts[platform] = (platformCounts[platform] || 0) + 1;
     });
 
-    const { data: cohortData } = await supabase.from('profiles').select('created_at').order('created_at', { ascending: true });
+    const { data: cohortData } = await supabase.from(T.PROFILES).select('created_at').order('created_at', { ascending: true });
     const cohortCounts: { [key: string]: number } = {};
     cohortData?.forEach(u => {
       const month = u.created_at.slice(0, 7);
@@ -94,7 +98,7 @@ export default function IdentityPage() {
     });
 
     const { data: users } = await supabase
-      .from('profiles')
+      .from(T.PROFILES)
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
@@ -149,13 +153,13 @@ export default function IdentityPage() {
 
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-          <MetricCard title="Total" value={metrics?.total || 0} icon={Users} />
-          <MetricCard title="Active Today" value={metrics?.activeToday || 0} icon={Activity} color="green" />
-          <MetricCard title="Active Week" value={metrics?.activeWeek || 0} icon={Activity} />
-          <MetricCard title="Active Month" value={metrics?.activeMonth || 0} icon={Activity} />
-          <MetricCard title="New (Week)" value={metrics?.newThisWeek || 0} icon={UserPlus} color="blue" />
-          <MetricCard title="New (Month)" value={metrics?.newThisMonth || 0} icon={UserPlus} color="blue" />
-          <MetricCard title="Churned" value={metrics?.churnedThisMonth || 0} icon={UserX} color="red" />
+          <MetricCard title="Total" value={metrics?.total || 0} icon={Users} color="cyan" delay={0} />
+          <MetricCard title="Active Today" value={metrics?.activeToday || 0} icon={Activity} color="green" delay={1} />
+          <MetricCard title="Active Week" value={metrics?.activeWeek || 0} icon={Activity} color="cyan" delay={2} />
+          <MetricCard title="Active Month" value={metrics?.activeMonth || 0} icon={Activity} color="cyan" delay={3} />
+          <MetricCard title="New (Week)" value={metrics?.newThisWeek || 0} icon={UserPlus} color="blue" delay={4} />
+          <MetricCard title="New (Month)" value={metrics?.newThisMonth || 0} icon={UserPlus} color="blue" delay={5} />
+          <MetricCard title="Churned" value={metrics?.churnedThisMonth || 0} icon={UserX} color="red" delay={6} />
         </div>
 
         {/* Charts */}
@@ -169,7 +173,7 @@ export default function IdentityPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={metrics?.byPlan} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} label>
-                      {metrics?.byPlan.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      {metrics?.byPlan.map((_, i) => <Cell key={i} fill={ENTRADA_COLORS[i % ENTRADA_COLORS.length]} />)}
                     </Pie>
                     <Tooltip />
                     <Legend />
@@ -188,7 +192,7 @@ export default function IdentityPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={metrics?.byPlatform} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} label>
-                      {metrics?.byPlatform.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      {metrics?.byPlatform.map((_, i) => <Cell key={i} fill={ENTRADA_COLORS[i % ENTRADA_COLORS.length]} />)}
                     </Pie>
                     <Tooltip />
                     <Legend />
@@ -210,7 +214,7 @@ export default function IdentityPage() {
                     <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                     <YAxis />
                     <Tooltip />
-                    <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="value" fill={ENTRADA_COLORS[0]} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -240,7 +244,7 @@ export default function IdentityPage() {
                   {metrics?.users.map((user, i) => (
                     <tr key={i} className="border-b hover:bg-muted/30">
                       <td className="p-2">{user.email}</td>
-                      <td className="p-2">{user.name || '-'}</td>
+                      <td className="p-2">{user.full_name || '-'}</td>
                       <td className="p-2">
                         <Badge variant={user.plan_type === 'pro' ? 'default' : 'secondary'}>
                           {user.plan_type || 'free'}
@@ -258,36 +262,5 @@ export default function IdentityPage() {
         </Card>
       </div>
     </div>
-  );
-}
-
-type MetricColor = 'default' | 'green' | 'blue' | 'red';
-
-function MetricCard({ title, value, icon: Icon, color = 'default' }: {
-  title: string;
-  value: number;
-  icon: any;
-  color?: MetricColor;
-}) {
-  const colorClasses: { [key in MetricColor]: string } = {
-    default: 'text-muted-foreground',
-    green: 'text-green-500',
-    blue: 'text-blue-500',
-    red: 'text-red-500',
-  };
-  const colorClass = colorClasses[color];
-
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-muted-foreground">{title}</p>
-            <p className="text-xl font-bold">{value.toLocaleString('en-US')}</p>
-          </div>
-          <Icon className={`h-4 w-4 ${colorClass}`} />
-        </div>
-      </CardContent>
-    </Card>
   );
 }

@@ -7,6 +7,10 @@ import { formatDate, formatRelative, truncate } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 
+const T = {
+  EVENTS: 'log_events',
+} as const;
+
 interface AppEvent {
   id: string;
   user_id: string | null;
@@ -33,9 +37,9 @@ export default function EventsPage() {
   useEffect(() => {
     async function loadEvents() {
       const supabase = createClient();
-      
+
       const { data } = await supabase
-        .from('app_events')
+        .from(T.EVENTS)
         .select('*')
         .order('created_at', { ascending: false })
         .limit(200);
@@ -59,7 +63,7 @@ export default function EventsPage() {
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <Header title="Eventos" description="Carregando..." />
+        <Header title="Events" description="Loading..." />
         <div className="flex-1 p-6">
           <div className="space-y-2">
             {[1, 2, 3, 4, 5].map(i => (
@@ -73,9 +77,9 @@ export default function EventsPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header 
-        title="Eventos" 
-        description="Auditoria de autenticação e atividade"
+      <Header
+        title="Events"
+        description="Authentication & activity audit log"
       />
 
       <div className="flex-1 p-6 space-y-6">
@@ -93,10 +97,10 @@ export default function EventsPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                <th className="text-left font-medium text-muted-foreground p-3 border-b">Tipo</th>
-                <th className="text-left font-medium text-muted-foreground p-3 border-b">Dados</th>
-                <th className="text-left font-medium text-muted-foreground p-3 border-b">App</th>
+                <th className="text-left font-medium text-muted-foreground p-3 border-b">Type</th>
                 <th className="text-left font-medium text-muted-foreground p-3 border-b">Data</th>
+                <th className="text-left font-medium text-muted-foreground p-3 border-b">App</th>
+                <th className="text-left font-medium text-muted-foreground p-3 border-b">Date</th>
                 <th className="text-left font-medium text-muted-foreground p-3 border-b">User ID</th>
               </tr>
             </thead>

@@ -95,7 +95,7 @@ export async function exportConversationToPDF(
   }
 
   // Footer on all pages
-  const pageCount = doc.internal.getNumberOfPages();
+  const pageCount = (doc.internal as any).getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     doc.setFillColor(24, 24, 27);

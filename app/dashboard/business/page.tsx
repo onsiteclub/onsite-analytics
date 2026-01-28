@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/layout/header';
+import { MetricCard } from '@/components/dashboard/metric-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
+import { ENTRADA_COLORS } from '@/components/charts/chart-colors';
 import {
   Clock,
   MapPin,
@@ -32,7 +34,10 @@ import {
   Legend,
 } from 'recharts';
 
-const COLORS = ['#3b82f6', '#10b981', '#0ea5e9', '#8b5cf6'];
+const T = {
+  ENTRIES: 'app_timekeeper_entries',
+  GEOFENCES: 'app_timekeeper_geofences',
+} as const;
 
 interface BusinessMetrics {
   totalSessions: number;
@@ -61,14 +66,14 @@ export default function BusinessPage() {
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
 
     // Counts
-    const { count: totalSessions } = await supabase.from('records').select('*', { count: 'exact', head: true });
-    const { count: totalLocations } = await supabase.from('locations').select('*', { count: 'exact', head: true }).eq('status', 'active');
-    const { count: sessionsToday } = await supabase.from('records').select('*', { count: 'exact', head: true }).gte('created_at', today);
-    const { count: sessionsWeek } = await supabase.from('records').select('*', { count: 'exact', head: true }).gte('created_at', weekAgo);
+    const { count: totalSessions } = await supabase.from(T.ENTRIES).select('*', { count: 'exact', head: true });
+    const { count: totalLocations } = await supabase.from(T.GEOFENCES).select('*', { count: 'exact', head: true }).eq('status', 'active');
+    const { count: sessionsToday } = await supabase.from(T.ENTRIES).select('*', { count: 'exact', head: true }).gte('created_at', today);
+    const { count: sessionsWeek } = await supabase.from(T.ENTRIES).select('*', { count: 'exact', head: true }).gte('created_at', weekAgo);
 
     // Sessions with duration
     const { data: sessionsData } = await supabase
-      .from('records')
+      .from(T.ENTRIES)
       .select('entry_at, exit_at, type, location_name, created_at')
       .not('exit_at', 'is', null)
       .order('created_at', { ascending: false })
@@ -103,7 +108,7 @@ export default function BusinessPage() {
 
     // Sessions trend (14 days)
     const { data: trendData } = await supabase
-      .from('records')
+      .from(T.ENTRIES)
       .select('created_at, entry_at, exit_at')
       .gte('created_at', twoWeeksAgo);
 
@@ -129,7 +134,7 @@ export default function BusinessPage() {
 
     // Recent sessions
     const { data: recentSessions } = await supabase
-      .from('records')
+      .from(T.ENTRIES)
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
@@ -184,13 +189,13 @@ export default function BusinessPage() {
 
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-          <MetricCard title="Total Sessions" value={metrics?.totalSessions || 0} icon={Clock} />
-          <MetricCard title="Hours Tracked" value={metrics?.totalHours || 0} icon={Clock} suffix="h" />
-          <MetricCard title="Active Locations" value={metrics?.totalLocations || 0} icon={MapPin} />
-          <MetricCard title="Automation Rate" value={metrics?.automationRate || 0} icon={Zap} suffix="%" color={(metrics?.automationRate ?? 0) >= 60 ? 'green' : 'orange'} />
-          <MetricCard title="Avg Duration" value={metrics?.avgDuration || 0} icon={Clock} suffix="min" />
-          <MetricCard title="Sessions Today" value={metrics?.sessionsToday || 0} icon={Play} color="green" />
-          <MetricCard title="Sessions Week" value={metrics?.sessionsWeek || 0} icon={Calendar} />
+          <MetricCard title="Total Sessions" value={metrics?.totalSessions || 0} icon={Clock} color="cyan" delay={0} />
+          <MetricCard title="Hours Tracked" value={metrics?.totalHours || 0} icon={Clock} color="cyan" suffix="h" delay={1} />
+          <MetricCard title="Active Locations" value={metrics?.totalLocations || 0} icon={MapPin} color="blue" delay={2} />
+          <MetricCard title="Automation Rate" value={metrics?.automationRate || 0} icon={Zap} suffix="%" color={(metrics?.automationRate ?? 0) >= 60 ? 'green' : 'orange'} delay={3} />
+          <MetricCard title="Avg Duration" value={metrics?.avgDuration || 0} icon={Clock} color="cyan" suffix="min" delay={4} />
+          <MetricCard title="Sessions Today" value={metrics?.sessionsToday || 0} icon={Play} color="green" delay={5} />
+          <MetricCard title="Sessions Week" value={metrics?.sessionsWeek || 0} icon={Calendar} color="cyan" delay={6} />
         </div>
 
         {/* Charts */}
@@ -204,7 +209,7 @@ export default function BusinessPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={metrics?.manualVsAuto} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} label>
-                      {metrics?.manualVsAuto.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      {metrics?.manualVsAuto.map((_, i) => <Cell key={i} fill={ENTRADA_COLORS[i % ENTRADA_COLORS.length]} />)}
                     </Pie>
                     <Tooltip />
                     <Legend />
@@ -226,7 +231,7 @@ export default function BusinessPage() {
                     <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                     <YAxis />
                     <Tooltip />
-                    <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} />
+                    <Line type="monotone" dataKey="value" stroke={ENTRADA_COLORS[0]} strokeWidth={2} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -248,8 +253,8 @@ export default function BusinessPage() {
                   <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={150} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="sessions" fill="#3b82f6" name="Sessions" />
-                  <Bar dataKey="hours" fill="#10b981" name="Hours" />
+                  <Bar dataKey="sessions" fill={ENTRADA_COLORS[0]} name="Sessions" />
+                  <Bar dataKey="hours" fill={ENTRADA_COLORS[4]} name="Hours" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -275,7 +280,7 @@ export default function BusinessPage() {
                 </thead>
                 <tbody>
                   {metrics?.recentSessions.map((s, i) => {
-                    const duration = s.entry_at && s.exit_at 
+                    const duration = s.entry_at && s.exit_at
                       ? Math.round((new Date(s.exit_at).getTime() - new Date(s.entry_at).getTime()) / 60000)
                       : null;
                     return (
@@ -299,36 +304,5 @@ export default function BusinessPage() {
         </Card>
       </div>
     </div>
-  );
-}
-
-type MetricColor = 'default' | 'green' | 'orange';
-
-function MetricCard({ title, value, icon: Icon, suffix = '', color = 'default' }: {
-  title: string;
-  value: number;
-  icon: any;
-  suffix?: string;
-  color?: MetricColor;
-}) {
-  const colorClasses: { [key in MetricColor]: string } = {
-    default: 'text-muted-foreground',
-    green: 'text-green-500',
-    orange: 'text-orange-500',
-  };
-  const colorClass = colorClasses[color];
-
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-muted-foreground">{title}</p>
-            <p className="text-xl font-bold">{value.toLocaleString('en-US')}{suffix}</p>
-          </div>
-          <Icon className={`h-4 w-4 ${colorClass}`} />
-        </div>
-      </CardContent>
-    </Card>
   );
 }

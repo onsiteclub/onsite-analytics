@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/layout/header';
+import { MetricCard } from '@/components/dashboard/metric-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
+import { ENTRADA_COLORS } from '@/components/charts/chart-colors';
 import {
   Bug,
   AlertTriangle,
@@ -30,6 +32,11 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+
+const T = {
+  ERRORS: 'log_errors',
+  ANALYTICS: 'agg_user_daily',
+} as const;
 
 const ERROR_COLORS: { [key: string]: string } = {
   crash: '#ef4444',
@@ -64,17 +71,17 @@ export default function DebugPage() {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { count: totalErrors } = await supabase
-      .from('error_log')
+      .from(T.ERRORS)
       .select('*', { count: 'exact', head: true })
       .gte('occurred_at', weekAgo);
 
     const { count: errorsToday } = await supabase
-      .from('error_log')
+      .from(T.ERRORS)
       .select('*', { count: 'exact', head: true })
       .gte('occurred_at', today);
 
     const { data: syncData } = await supabase
-      .from('analytics_daily')
+      .from(T.ANALYTICS)
       .select('sync_attempts, sync_failures, geofence_accuracy_sum, geofence_accuracy_count')
       .gte('date', weekAgo.split('T')[0]);
 
@@ -94,7 +101,7 @@ export default function DebugPage() {
     const avgGeofenceAccuracy = accuracyCount ? Math.round(accuracySum / accuracyCount) : 0;
 
     const { data: typeData } = await supabase
-      .from('error_log')
+      .from(T.ERRORS)
       .select('error_type')
       .gte('occurred_at', weekAgo);
 
@@ -104,14 +111,14 @@ export default function DebugPage() {
       typeCounts[type] = (typeCounts[type] || 0) + 1;
     });
 
-    const errorsByType = Object.entries(typeCounts).map(([name, value]) => ({ 
-      name, 
+    const errorsByType = Object.entries(typeCounts).map(([name, value]) => ({
+      name,
       value,
       fill: ERROR_COLORS[name] || ERROR_COLORS.other,
     }));
 
     const { data: trendData } = await supabase
-      .from('error_log')
+      .from(T.ERRORS)
       .select('occurred_at')
       .gte('occurred_at', weekAgo);
 
@@ -122,7 +129,7 @@ export default function DebugPage() {
     });
 
     const { data: deviceData } = await supabase
-      .from('error_log')
+      .from(T.ERRORS)
       .select('device_model')
       .gte('occurred_at', weekAgo);
 
@@ -133,7 +140,7 @@ export default function DebugPage() {
     });
 
     const { data: versionData } = await supabase
-      .from('error_log')
+      .from(T.ERRORS)
       .select('app_version')
       .gte('occurred_at', weekAgo);
 
@@ -144,7 +151,7 @@ export default function DebugPage() {
     });
 
     const { data: recentErrors } = await supabase
-      .from('error_log')
+      .from(T.ERRORS)
       .select('*')
       .order('occurred_at', { ascending: false })
       .limit(50);
@@ -208,10 +215,10 @@ export default function DebugPage() {
 
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricCard title="Errors (7 days)" value={metrics?.totalErrors || 0} icon={Bug} color={(metrics?.totalErrors ?? 0) > 10 ? 'red' : 'green'} />
-          <MetricCard title="Errors Today" value={metrics?.errorsToday || 0} icon={AlertTriangle} color={(metrics?.errorsToday ?? 0) > 0 ? 'orange' : 'green'} />
-          <MetricCard title="Sync Rate" value={metrics?.syncSuccessRate || 0} icon={RefreshCw} suffix="%" color={(metrics?.syncSuccessRate ?? 100) >= 95 ? 'green' : 'red'} />
-          <MetricCard title="Avg GPS Accuracy" value={metrics?.avgGeofenceAccuracy || 0} icon={Target} suffix="m" color={(metrics?.avgGeofenceAccuracy ?? 0) <= 20 ? 'green' : 'orange'} />
+          <MetricCard title="Errors (7 days)" value={metrics?.totalErrors || 0} icon={Bug} color={(metrics?.totalErrors ?? 0) > 10 ? 'red' : 'green'} delay={0} />
+          <MetricCard title="Errors Today" value={metrics?.errorsToday || 0} icon={AlertTriangle} color={(metrics?.errorsToday ?? 0) > 0 ? 'orange' : 'green'} delay={1} />
+          <MetricCard title="Sync Rate" value={metrics?.syncSuccessRate || 0} icon={RefreshCw} suffix="%" color={(metrics?.syncSuccessRate ?? 100) >= 95 ? 'green' : 'red'} delay={2} />
+          <MetricCard title="Avg GPS Accuracy" value={metrics?.avgGeofenceAccuracy || 0} icon={Target} suffix="m" color={(metrics?.avgGeofenceAccuracy ?? 0) <= 20 ? 'green' : 'orange'} delay={3} />
         </div>
 
         {/* Charts */}
@@ -255,7 +262,7 @@ export default function DebugPage() {
                     <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                     <YAxis />
                     <Tooltip />
-                    <Line type="monotone" dataKey="value" stroke="#ef4444" strokeWidth={2} />
+                    <Line type="monotone" dataKey="value" stroke={ENTRADA_COLORS[2]} strokeWidth={2} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -354,38 +361,5 @@ export default function DebugPage() {
         </Card>
       </div>
     </div>
-  );
-}
-
-type MetricColor = 'default' | 'green' | 'orange' | 'red';
-
-function MetricCard({ title, value, icon: Icon, suffix = '', color = 'default' }: {
-  title: string;
-  value: number;
-  icon: any;
-  suffix?: string;
-  color?: MetricColor;
-}) {
-  const colorClasses: { [key in MetricColor]: string } = {
-    default: 'text-muted-foreground bg-muted',
-    green: 'text-green-500 bg-green-500/10',
-    orange: 'text-orange-500 bg-orange-500/10',
-    red: 'text-red-500 bg-red-500/10',
-  };
-
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-muted-foreground">{title}</p>
-            <p className="text-2xl font-bold">{value.toLocaleString('en-US')}{suffix}</p>
-          </div>
-          <div className={`p-2 rounded-lg ${colorClasses[color]}`}>
-            <Icon className="h-5 w-5" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
   );
 }

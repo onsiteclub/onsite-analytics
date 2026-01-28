@@ -55,6 +55,11 @@ module.exports = {
   				dark: '#1C1917',
   				gray: '#78716C'
   			},
+  			hourglass: {
+  				'entrada': '#06b6d4',
+  				'saida': '#f59e0b',
+  				'gargalo': '#3b82f6',
+  			},
   			chart: {
   				'1': 'hsl(var(--chart-1))',
   				'2': 'hsl(var(--chart-2))',
