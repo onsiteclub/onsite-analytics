@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
+import { FloatingAssistant } from '@/components/assistant';
 import { getThemeForRoute } from '@/lib/theme';
 
 export default function DashboardLayout({
@@ -21,6 +22,7 @@ export default function DashboardLayout({
       >
         {children}
       </main>
+      <FloatingAssistant />
     </div>
   );
 }
